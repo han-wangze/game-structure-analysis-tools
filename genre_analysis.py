@@ -232,14 +232,11 @@ def calculate_acquisition_efficiency(df, year):
     """
     efficiency_results = {}
 
-    # 1. 单产品吸量效率（下载量/产品数）
-    efficiency_results['single_product_acquisition'] = safe_division(df['downloads_abs'], 1)
-
-    # 2. 品类平均吸量效率
+    # 1. 品类平均吸量效率
     total_products = len(df) or 1
     efficiency_results['category_avg_acquisition'] = round(safe_division(df['downloads_abs'].sum(), total_products), 2)
 
-    # 3. 新品吸量效率
+    # 2. 新品吸量效率
     new_product_date = pd.to_datetime(f"{year}-01-01")
     next_year_date = pd.to_datetime(f"{year + 1}-01-01")
     new_df = df[((df['release_date'] >= new_product_date) & (df['release_date'] < next_year_date))].copy()
@@ -247,7 +244,7 @@ def calculate_acquisition_efficiency(df, year):
     efficiency_results['new_product_avg_acquisition'] = round(
         safe_division(new_df['downloads_abs'].sum(), new_product_count), 2)
 
-    # 4. 分层吸量效率（头部/中腰部/尾部）
+    # 3. 分层吸量效率（头部/中腰部/尾部）
     df_download_sorted = df.sort_values('downloads_abs', ascending=False).reset_index(drop=True)
     total_dl = df_download_sorted['downloads_abs'].sum() or 1
     df_download_sorted['downloads_cum_pct'] = df_download_sorted['downloads_abs'].cumsum() / total_dl
@@ -268,16 +265,16 @@ def calculate_acquisition_efficiency(df, year):
     tail_count = len(tail_df) or 1
     efficiency_results['tail_avg_acquisition'] = round(safe_division(tail_df['downloads_abs'].sum(), tail_count), 2)
 
-    # 5. 吸量增长效率（年度下载增长值/上线时长）
+    # 4. 吸量增长效率（年度下载增长值/上线时长）
     df['release_days'] = df['release_date'].apply(lambda x: get_product_lifecycle_days(x, year))
     df['acquisition_growth_efficiency'] = safe_division(df['downloads_growth'], df['release_days'])
     efficiency_results['avg_acquisition_growth_efficiency'] = round(df['acquisition_growth_efficiency'].mean(), 4)
 
-    # 6. 吸量留存效率（DAU/下载量）
+    # 5. 吸量留存效率（DAU/下载量）
     df['acquisition_retention_efficiency'] = safe_division(df['dau_abs'], df['downloads_abs']) * 100
     efficiency_results['avg_acquisition_retention_efficiency'] = round(df['acquisition_retention_efficiency'].mean(), 2)
 
-    # 7. 吸量变现效率（RPD）
+    # 6. 吸量变现效率（RPD）
     efficiency_results['avg_acquisition_monetization_efficiency'] = round(df['rpd'].mean(), 4)
 
     return efficiency_results

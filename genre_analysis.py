@@ -23,6 +23,8 @@ class Config:
     OUTPUT_FOLDER = "data"  # 分析结果输出路径
     # 时间配置（5年分析，可根据需要调整年份）
     ANALYSIS_YEARS = [2021, 2022, 2023, 2024, 2025]  # 5年数据
+    # 分析维度：sub_genre=品类（源列 Game Sub-genre）／game_theme=题材（源列 Game Theme）
+    DIMENSION = "sub_genre"
     # 分层阈值配置
     HEAD_RATIO = 0.4  # 头部占比阈值（40%）
     MID_RATIO = 0.7  # 中腰部占比阈值（70%）
@@ -331,6 +333,7 @@ def preprocess_data(file_path):
         "platform": "platform",
         "category": "category",
         "game sub-genre": "sub_genre",
+        "game theme": "game_theme",
         "game product model": "product_model",
         "earliest release date": "release_date",
         "most popular country by downloads": "core_country",
@@ -357,6 +360,13 @@ def preprocess_data(file_path):
         if col not in df.columns:
             print(f"警告：文件 {os.path.basename(file_path)} 缺少 {col} 列，创建空列")
             df[col] = np.nan
+
+    # 维度列统一：内部固定用 sub_genre 承载维度值，取值来自配置的分析维度列
+    dim_col = Config.DIMENSION
+    if dim_col not in df.columns:
+        print(f"警告：文件 {os.path.basename(file_path)} 缺少 {dim_col} 列，创建空列")
+        df[dim_col] = np.nan
+    df['sub_genre'] = df[dim_col]
 
     # 数据类型转换
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
@@ -903,6 +913,11 @@ def cluster_analysis(df, sub_genre, year):
 
 
 # ======================== 结果输出与可视化 ========================
+def _rename_dimension_column(df):
+    """输出时把内部维度列 sub_genre 改名为当前配置的维度列名"""
+    return df.rename(columns={'sub_genre': Config.DIMENSION})
+
+
 def save_analysis_results(all_results, output_folder):
     """保存分析结果到 Excel 文件"""
     if not os.path.exists(output_folder):
@@ -932,7 +947,7 @@ def save_analysis_results(all_results, output_folder):
                             engine='openpyxl') as writer:
             # 集中度分析
             if concentration_data:
-                pd.DataFrame(concentration_data).to_excel(writer, sheet_name='集中度分析', index=False)
+                _rename_dimension_column(pd.DataFrame(concentration_data)).to_excel(writer, sheet_name='集中度分析', index=False)
 
             # 吸量效率分析
             acquisition_data = []
@@ -952,7 +967,7 @@ def save_analysis_results(all_results, output_folder):
                 }
                 acquisition_data.append(acquisition_res)
             if acquisition_data:
-                pd.DataFrame(acquisition_data).to_excel(writer, sheet_name='吸量效率分析', index=False)
+                _rename_dimension_column(pd.DataFrame(acquisition_data)).to_excel(writer, sheet_name='吸量效率分析', index=False)
 
             # 新品表现分析
             new_product_data = []
@@ -960,7 +975,7 @@ def save_analysis_results(all_results, output_folder):
                 simplified_res = {k: v for k, v in res.items() if not isinstance(v, pd.DataFrame)}
                 new_product_data.append(simplified_res)
             if new_product_data:
-                pd.DataFrame(new_product_data).to_excel(writer, sheet_name='新品表现分析', index=False)
+                _rename_dimension_column(pd.DataFrame(new_product_data)).to_excel(writer, sheet_name='新品表现分析', index=False)
 
             # 存量产品分析
             existing_product_data = []
@@ -968,7 +983,7 @@ def save_analysis_results(all_results, output_folder):
                 simplified_res = {k: v for k, v in res.items() if not isinstance(v, pd.DataFrame)}
                 existing_product_data.append(simplified_res)
             if existing_product_data:
-                pd.DataFrame(existing_product_data).to_excel(writer, sheet_name='存量产品分析', index=False)
+                _rename_dimension_column(pd.DataFrame(existing_product_data)).to_excel(writer, sheet_name='存量产品分析', index=False)
 
             # ======================== 合并聚类关键词与表现分析为一张表 ========================
             # 初始化合并后的聚类数据列表
@@ -1025,11 +1040,11 @@ def save_analysis_results(all_results, output_folder):
             # 将合并后的聚类数据写入Excel（替换原来的两个sheet）
             if merged_cluster_data:
                 merged_cluster_df = pd.DataFrame(merged_cluster_data)
-                merged_cluster_df.to_excel(writer, sheet_name='聚类分析汇总', index=False)
+                _rename_dimension_column(merged_cluster_df).to_excel(writer, sheet_name='聚类分析汇总', index=False)
 
             # TOP10产品详情（含双维度贡献率）
             if top_products_data:
-                pd.concat(top_products_data, ignore_index=True).to_excel(writer, sheet_name='TOP10产品详情',
+                _rename_dimension_column(pd.concat(top_products_data, ignore_index=True)).to_excel(writer, sheet_name='TOP10产品详情',
                                                                          index=False)
 
         print(f"5年分析结果已保存至：{output_folder}/game_category_analysis_report_5years.xlsx")

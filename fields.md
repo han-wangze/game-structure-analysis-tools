@@ -4,7 +4,8 @@
 
 ## 通用口径
 
-- **分析粒度**：品类（`Game Sub-genre` 列）× 年份。
+- **分析粒度**：维度（品类或题材）× 年份，由 `Config.DIMENSION` 决定——`"sub_genre"` 按品类（源列 `Game Sub-genre`），`"game_theme"` 按题材（源列 `Game Theme`）。
+- **维度列名**：输出的维度列名随配置而变——跑品类时为 `sub_genre`，跑题材时为 `game_theme`（本文统一称「维度列」）。
 - **分层**：按下载量降序累计占比划分——头部 ≤40%、中腰部 40%–70%、尾部 >70%。
 - **新品 / 存量**：首发日期落在当年 1/1–12/31 的为新品，其余为存量产品。
 - **成熟 / 衰退**：上线 1–3 年为成熟产品，3 年以上为衰退产品。
@@ -26,7 +27,7 @@
 
 | 字段 | 类型 | 含义 |
 |---|---|---|
-| `sub_genre` | 字符串 | 品类名称 |
+| `sub_genre` / `game_theme` | 字符串 | 维度名称（品类名或题材名，取决于 `Config.DIMENSION`） |
 | `year` | 整数 | 分析年份（2021–2025） |
 | `total_products` | 整数 | 该品类当年有效产品数 |
 
@@ -116,7 +117,7 @@
 
 | 字段 | 类型 | 含义 | 计算 |
 |---|---|---|---|
-| `sub_genre` / `year` | — | 品类与年份 | — |
+| `sub_genre` / `game_theme`、`year` | — | 维度与年份 | — |
 | `optimal_cluster_num` | 整数 | 本次聚类选定的簇数 | 由轮廓系数自动选取 |
 | `silhouette_scores` | 字符串 | 各候选 K 值（2–8）对应的轮廓系数 | 形如 `[(2, 0.08), (3, 0.09), ...]`，用于查看选 K 依据 |
 | `cluster_label` | 字符串 | 簇标签 | `cluster_1`、`cluster_2` … |
@@ -145,7 +146,7 @@
 | `download_contribution_pct` / `revenue_contribution_pct` | 浮点 | 该产品对品类增长的贡献（%） |
 | `is_new` | 布尔 | 是否当年新品 |
 | `sort_type` | 字符串 | `download` = 按下载取的前 10；`revenue` = 按收入取的前 10 |
-| `sub_genre` / `year` | — | 品类与年份 |
+| `sub_genre` / `game_theme`、`year` | — | 维度与年份 |
 
 ## 阅读建议
 

@@ -1,3 +1,6 @@
 pandas
 numpy
 openpyxl
+scikit-learn   # genre_analysis.py（TF-IDF / K-Means / 轮廓系数）
+nltk           # genre_analysis.py（词干提取）
+matplotlib     # genre_analysis.py（对比图）

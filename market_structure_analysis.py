@@ -54,13 +54,25 @@ class Config:
     TOP_N_INRANK = 100               # 跨年在榜口径：固定取每个维度内 Top N
     TOP_N_HEAD = 20                  # 头部换血率用的 Top N
 
-    # ---- 进入判断的阈值（可调；每一项都会写进输出表的「判定依据」列）----
-    JUDGE_SCALE_RATIO = 1.0          # 规模：排序轴总量 ≥ 同组中位 × 该值 → 规模够
-    JUDGE_GROWTH_MIN = 0.0           # 增长：首尾年 CAGR 下限
-    JUDGE_CR5_HIGH = 75.0            # 集中度：CR5 高于此值算高（头部固化）
-    JUDGE_CR5_VERY_HIGH = 85.0       # CR5 高于此值 → 头部已固化，综合判断封顶「有条件进入」
-    JUDGE_CHURN_MIN = 15.0           # 头部换血率下限（%），低于此值说明头部位置对新进入者关闭
-    JUDGE_PATH_MIN_SHARE = 50.0      # 最大产品模型档占比下限（%），低于此值说明变现路径说不清
+    # ---- 进入判断的阈值 ----
+    # 每个阈值都写清「为什么是这个值」。阈值可调，但调完要回来改这里的说明，
+    # 否则文档与代码会各说各话；输出表的「判定规则」列会自动带上这里的实际取值。
+    JUDGE_SCALE_RATIO = 1.0          # 规模：排序轴总量 ≥ 同组中位 × 该值。
+                                      # 取 1.0 = 不要求比同组中位大，只要不在中位以下；
+                                      # 跨口径的维度不能比规模，所以基准限定在同一次运行内。
+    JUDGE_GROWTH_MIN = 0.0           # 增长：首尾年 CAGR 下限，取 0 = 不要求增长，只要求不萎缩。
+                                      # 用 CAGR 而不是最近一年同比，因为单年同比会被基数效应带偏。
+    JUDGE_CR5_HIGH = 75.0            # 集中度：CR5 高于此值算「头部固化」。
+                                      # 取 75 是因为 Top5 拿走四分之三份额时，
+                                      # 中小玩家已很难靠单点突破进入。
+    JUDGE_CR5_VERY_HIGH = 85.0       # CR5 高于此值触发否决项，综合判断封顶「有条件进入」。
+                                      # 与上一档拉开 10 个点，用来区分「头部偏固」与「头部锁死」。
+    JUDGE_CHURN_MIN = 15.0           # 新品空间：头部换血率下限（%）。
+                                      # 用换血率而不是新品占比——新品占比高但头部固化时，
+                                      # 新品其实挤不进去；换血率直接测「头部位置是否对新进入者开放」。
+    JUDGE_PATH_MIN_SHARE = 50.0      # 变现路径：最大产品模型档占比下限（%），低于此值判「路径不清」。
+                                      # 过半才算「说得清靠什么赚钱」；占比过半同时说明可选项变少，
+                                      # 这一层含义写在输出表的「变现依据」列里。
 
     # ---- 输出 ----
     EXPORT_NAME = "市场结构分析"
@@ -398,6 +410,22 @@ def market_mix_table(panel, dim):
     return pd.DataFrame(rows)
 
 
+def judgement_rule_text():
+    """
+    把当前 Config 的实际取值格式化成一段规则说明，写进输出表的「判定规则」列。
+    这样阈值一旦调整，表里的说明自动跟着变，不会出现「文档写一套、代码跑另一套」。
+    """
+    return (
+        f"规模：排序轴总量 ≥ 同组中位 × {Config.JUDGE_SCALE_RATIO:g}；"
+        f"增长：首尾年 CAGR ≥ {Config.JUDGE_GROWTH_MIN:g}%；"
+        f"集中度：CR5 < {Config.JUDGE_CR5_HIGH:g}% 为可接受；"
+        f"新品空间：头部换血率 ≥ {Config.JUDGE_CHURN_MIN:g}%；"
+        f"变现路径：最大产品模型档占比 ≥ {Config.JUDGE_PATH_MIN_SHARE:g}%。"
+        f"合成：通过 ≥4 项且无否决 → 可进入；≥3 项 → 有条件进入；≤2 项 → 不建议进入。"
+        f"否决：CR5 ≥ {Config.JUDGE_CR5_VERY_HIGH:g}% → 封顶「有条件进入」。"
+    )
+
+
 # ======================== 4. 进入判断 ========================
 def entry_judgement(trend, model_df):
     """
@@ -506,6 +534,7 @@ def entry_judgement(trend, model_df):
             "通过项数": f"{n_ok}/5",
             "否决项": veto or "无",
             "综合判断": verdict,
+            "判定规则": judgement_rule_text(),
             "适用边界": boundary,
         })
     return pd.DataFrame(rows)

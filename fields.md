@@ -1,6 +1,6 @@
 # genre_analysis.py 输出字段说明
 
-输出文件：`game_category_analysis_report_5years.xlsx`，共 6 张底表。除「TOP10产品详情」外，每行 = 一个品类 × 一个年份。
+输出文件：`game_category_analysis_report_5years.xlsx`，共 8 张底表。除「TOP10产品详情」「K选择评估」「聚类成员明细」外，每行 = 一个维度值 × 一个年份。
 
 ## 通用口径
 
@@ -18,8 +18,10 @@
 | 2 | 吸量效率分析：分层吸量效率与三个效率维度 |
 | 3 | 新品表现分析：新品数量、渗透率、增长贡献、变现溢价 |
 | 4 | 存量产品分析：成熟 / 衰退分层的规模与贡献 |
-| 5 | 聚类分析汇总：命名聚类的关键词与各簇表现 |
-| 6 | TOP10产品详情：下载、收入两个维度各取 Top10 的产品明细 |
+| 5 | 聚类分析汇总：命名聚类各簇的关键词与表现 |
+| 6 | K选择评估：每个候选 K 的四个聚类指标、簇规模与是否被选中 |
+| 7 | 聚类成员明细：逐产品的簇归属（供人工复核簇是否成立） |
+| 8 | TOP10产品详情：下载、收入两个维度各取 Top10 的产品明细 |
 
 ## 1. 集中度分析
 
@@ -113,26 +115,58 @@
 
 ## 5. 聚类分析汇总
 
-每行 = 一个品类 × 年份 × 一个命名簇。
+每行 = 一个维度值 × 年份 × 一个命名簇。
 
 | 字段 | 类型 | 含义 | 计算 |
 |---|---|---|---|
 | `sub_genre` / `game_theme`、`year` | — | 维度与年份 | — |
-| `optimal_cluster_num` | 整数 | 本次聚类选定的簇数 | 由轮廓系数自动选取 |
-| `silhouette_scores` | 字符串 | 各候选 K 值（2–8）对应的轮廓系数 | 形如 `[(2, 0.08), (3, 0.09), ...]`，用于查看选 K 依据 |
+| `optimal_cluster_num` | 整数 | 本次聚类选定的簇数 | 业务粒度区间 + 碎簇剔除 + 简约原则（见 README「K 为什么不能靠指标算」） |
+| `silhouette_scores` | 字符串 | 各候选 K 对应的轮廓系数 | 形如 `K3:0.31 K4:0.33`，与历史底表口径兼容 |
+| `silhouette_selected` | 浮点 | 选定 K 的轮廓系数 | 降维（LSA）空间下的值 |
+| `cluster_note` | 字符串 | 选 K 的依据 / 异常标记 | `auto:business-window+parsimony`、`manual:<理由>`；后缀 `|weak-structure` 表示区间峰值 <0.25、结构弱 |
 | `cluster_label` | 字符串 | 簇标签 | `cluster_1`、`cluster_2` … |
-| `core_keywords` | 字符串 | 该簇的核心关键词（逗号分隔） | 按「簇内相对全局的对比度」提取，簇间不重复 |
+| `core_keywords` | 字符串 | 该簇的核心关键词（逗号分隔） | 按「簇内相对全局的对比度」在原始 TF-IDF 空间提取，簇间不重复 |
 | `cr3_revenue_pct` | 浮点 | 该品类当年收入 CR3（%） | 前 3 名收入 ÷ 品类收入 |
 | `top3_same_cluster_count` | 整数 | 收入前 3 名中落在同一簇的产品数（1–3） | 仅在 CR3≥80% 的高垄断品类给出，其余留空 |
 | `new_product_top_cluster_lift` | 浮点 | 新品向最大簇的聚集倍数 | 新品落入最大簇的比例 ÷ 全体落入该簇的比例；>1 表示新品相对更集中 |
 | `product_count` | 整数 | 该簇产品数 | — |
+| `cluster_size_share_pct` | 浮点 | 该簇产品数占本组产品数的比重（%） | 簇产品数 ÷ 本组产品数；用来看「一个簇吃掉大半」还是「碎成一堆」 |
 | `total_downloads` / `avg_downloads` | 浮点 | 该簇下载合计 / 均值 | — |
 | `total_revenue` / `avg_revenue` | 浮点 | 该簇收入合计 / 均值 | — |
 | `avg_rpd` / `avg_arpdau` | 浮点 | 该簇 RPD / ARPDAU 均值 | — |
 | `download_ratio` / `revenue_ratio` | 浮点 | 该簇占品类的下载 / 收入比重（%） | 簇合计 ÷ 品类合计 |
 | `download_growth_contribution_pct` | 浮点 | 该簇对品类下载增长的贡献（%） | 簇下载增长 ÷ 品类下载增长 |
 
-## 6. TOP10产品详情
+## 6. K选择评估
+
+每行 = 一个维度值 × 年份 × 一个候选 K。这张表的作用是**把选 K 的依据全部摊开**：如果只给一个数，读者无法判断它是不是「被搜索范围的上限截断了」。
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `sub_genre` / `game_theme`、`year` | — | 维度与年份 |
+| `k` | 整数 | 候选簇数 |
+| `inertia` | 浮点 | 簇内平方和（SSE），肘部法看的量 |
+| `sse_drop_pct` | 浮点 | 相对上一档 K 的 SSE 降幅（%）。降幅一路平下去 = 没有肘部 |
+| `silhouette` | 浮点 | 轮廓系数（LSA 降维空间） |
+| `calinski_harabasz` | 浮点 | CH 指数，越大越好 |
+| `davies_bouldin` | 浮点 | DB 指数，越小越好 |
+| `min_cluster_share_pct` / `max_cluster_share_pct` | 浮点 | 最小 / 最大簇的产品数占比（%），用来看碎簇与垄断簇 |
+| `selected` | 布尔 | 这一档 K 是否被采用 |
+| `selection_reason` | 字符串 | 选 / 不选的依据 |
+
+## 7. 聚类成员明细
+
+每行 = 一个产品。「簇标签」是自动生成的，只看关键词无法判断这个簇到底聚了谁；这张表把每个产品的簇归属列出来，用来人工复核「这一簇是不是同一个细分」。
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `sub_genre` / `game_theme`、`year` | — | 维度与年份 |
+| `cluster_label` | 字符串 | 该产品所属簇 |
+| `cluster_size` | 整数 | 该簇产品数 |
+| `cluster_size_share_pct` | 浮点 | 该簇占本组产品数的比重（%） |
+| `product_name` | 字符串 | 产品名称 |
+
+## 8. TOP10产品详情
 
 每行 = 一个产品；下载、收入两个维度各取 Top10（同一产品可能出现两次，用 `sort_type` 区分）。
 
@@ -153,4 +187,5 @@
 - 看**头部垄断**：`CR3_revenue_pct` / `CR5_revenue_pct` 配合 `CR*_monopoly_level`；
 - 看**增长由谁带动**：`head/mid/tail_*_contribution_pct` 与 `new_product_*_contribution`；
 - 看**进入空间**：`new_product_download_penetration`、`new_product_rpd_premium_ratio`；
-- 看**命名与结构**：聚类表的 `core_keywords` 配合 `download_ratio` / `revenue_ratio` / `avg_rpd`，判断哪类命名框架的产品表现更好。
+- 看**命名范式**：聚类表的 `core_keywords` 配合 `download_ratio` / `revenue_ratio` / `avg_rpd`，判断哪类命名范式的产品表现更好；
+- 看**聚类是否可信**：先看 `K选择评估` 里 `selection_reason` 有没有 `weak-structure`，再到 `聚类成员明细` 里抽一簇看产品是不是真属同一玩法——簇是「命名词族」，不是玩法分类。

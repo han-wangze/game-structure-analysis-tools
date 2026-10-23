@@ -6,7 +6,8 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
+from sklearn.decomposition import TruncatedSVD
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 import warnings
 import nltk
 
@@ -30,12 +31,25 @@ class Config:
     MID_RATIO = 0.7  # 中腰部占比阈值（70%）
     CR_THRESHOLDS = [3, 5, 10]  # CR3/CR5/CR10
     FLUCTUATION_THRESHOLD = 0.5  # 大幅波动阈值（50%）
-    # 自动聚类配置
-    CLUSTER_TOP_K_WORDS = 10  # 每个聚类提取TOP10关键词
-    CLUSTER_RANGE = (2, 8)  # K-Means聚类数量测试范围（自动选最优K）
-    SILHOUETTE_PEAK_TOLERANCE = 0.01  # 选K：取与轮廓系数峰值差距≤此值的最小 K
-    TFIDF_MAX_FEATURES = 300  # TF-IDF最大特征数
-    KMEANS_N_INIT = 10  # K-Means初始化次数
+    # ======================== 命名聚类配置 ========================
+    # 选 K 的三件事（肘部 / 轮廓系数 / 业务判断）在这类数据上的实际表现：
+    #   1. 轮廓系数随 K 几乎单调上升，没有峰值可依；
+    #   2. SSE 每档只降 1%–4%，平滑到没有拐点；
+    #   3. CH 与 DB 的变化方向相反，两个指标互相打架。
+    # 也就是说「哪个 K 最优」在数学上无解。因此 K 由业务粒度区间给定，
+    # 指标降级为「校验这个 K 是不是病态」，并全程落表披露。
+    CLUSTER_RANGE = (3, 6)          # 业务可解释的粒度区间（K=2 只是把大盘劈两半，K>6 报告里讲不完）
+    CLUSTER_TOP_K_WORDS = 10        # 每个簇提取 TOP10 关键词
+    TFIDF_MAX_FEATURES = 300        # TF-IDF 最大特征数
+    TFIDF_SVD_COMPONENTS = 20       # LSA 降维维度：实测把轮廓系数从 0.09 量级提到 0.30 量级
+    KMEANS_N_INIT = 10              # K-Means 初始化次数
+    MIN_CLUSTER_SHARE = 3.0         # 每簇至少占本组产品数 3%，防碎簇
+    PARSIMONY_RATIO = 0.90          # 取轮廓系数不低于区间峰值 90% 的最小 K
+    WEAK_STRUCTURE_FLOOR = 0.25     # 区间峰值低于此值 -> 标记「结构弱」，仍出簇但需谨慎解读
+    K_SELECTION_MODE = "auto"       # auto（走上面的规则）/ manual（只认 K_OVERRIDE）
+    # 业务判断的落点：按「维度值, 年份」锁定 K 并写明理由，理由会写进输出表
+    # 例：{("Example Genre", 2021): (4, "四簇可分别命名为 xxx / yyy / zzz")}
+    K_OVERRIDE = {}
     DOMAIN_STOPWORDS = ["game", "games", "online", "free", "app", "apps", "mobile", "play"]  # 纯噪音词（不含 card/war/hero 等有语义词）
     # 内存配置（针对5年大数据量）
     CHUNK_SIZE = 10000  # 分块读取大小
@@ -73,101 +87,176 @@ def preprocess_text(text):
     return " ".join(words)
 
 
-def auto_cluster_names(names, cluster_range):
+def auto_cluster_names(names, cluster_range, override=None):
     """
-    基于 TF-IDF + K-Means 自动聚类游戏名称。
-    选K：从 K=2 递增，相邻K轮廓系数提升低于阈值即停止（避免单调爬到上限）。
-    取词：按「簇心 − 全局均值」的对比度取词，避免品类通用词在每个簇重复。
-    注意：簇逐年独立聚类，簇标签不跨年对齐。
-    return: (聚类标签, 各簇核心关键词, 最优聚类数, 各K轮廓系数序列)
-    """
-    processed_names = [preprocess_text(name) for name in names]
+    TF-IDF → LSA 降维 → K-Means 聚类产品名。
 
-    # 过滤空文本，避免 TF-IDF 处理失败
+    为什么要降维：直接在高维稀疏 TF-IDF 上聚类，同品类内的产品名向量彼此都很近，
+    实测轮廓系数只有 0.03–0.23 量级，簇分不开。先做 LSA 降到 20 维再聚类，
+    同一批数据能到 0.30 量级。取词仍回到原始 TF-IDF 空间做，保证关键词可读。
+
+    选 K：轮廓系数随 K 单调上升、SSE 无拐点、CH 与 DB 方向相反——「最优 K」在数学上无解。
+    因此按业务粒度区间 cluster_range 限定候选，先剔除占比过小的碎簇，
+    再取轮廓系数不低于区间峰值 PARSIMONY_RATIO 的最小 K（简约原则）。
+    手工判断通过 Config.K_OVERRIDE 覆盖，理由会写进评估表。
+
+    override: (k, reason) 或 None
+
+    return: (聚类标签, 各簇关键词, 选定簇数, 评估明细, 元信息)
+    """
+    n_all = len(names)
+    processed_names = [preprocess_text(name) for name in names]
     valid_indices = [i for i, text in enumerate(processed_names) if text.strip()]
-    if len(valid_indices) < 2:
-        return [0] * len(names), {"cluster_1": ["unknown"]}, 1, []
+
+    def _empty(reason):
+        return ([0] * n_all, {"cluster_1": ["unknown"]}, 1, [],
+                {"selection_reason": reason, "weak_structure": True,
+                 "silhouette_selected": None, "n_docs": len(valid_indices)})
+
+    if len(valid_indices) < 6:
+        return _empty("skip:too_few_names")
 
     valid_names = [processed_names[i] for i in valid_indices]
 
-    # TF-IDF：特征数上限按 Config 生效（原先硬写 min(50, 词表)，上限过低）
+    # ---- 1. 原始词空间：TF-IDF（取词与解释都在这个空间做）----
     tfidf = TfidfVectorizer(
         max_features=min(Config.TFIDF_MAX_FEATURES, len(set(' '.join(valid_names).split()))),
         min_df=2,
         stop_words='english'
     )
-
     try:
         tfidf_matrix = tfidf.fit_transform(valid_names)
     except Exception:
-        return [0] * len(names), {"cluster_1": ["unknown"]}, 1, []
+        return _empty("skip:tfidf_failed")
 
+    # ---- 2. 聚类空间：LSA 降维 ----
+    n_components = min(Config.TFIDF_SVD_COMPONENTS,
+                       tfidf_matrix.shape[1] - 1,
+                       len(valid_names) - 1)
+    if n_components >= 2:
+        embedding = TruncatedSVD(n_components=n_components, random_state=42).fit_transform(tfidf_matrix)
+    else:  # 词表过小时退回原空间，至少还能跑
+        embedding = tfidf_matrix.toarray()
+
+    # ---- 3. 逐个候选 K 算四指标 + 簇规模 ----
     start_k, end_k = cluster_range
-
-    # 先算 2..end_k 每个 K 的轮廓系数
-    scores = {}
+    eval_rows = []
+    fitted = {}
     for k in range(start_k, end_k + 1):
         if k >= len(valid_names):
             break
         try:
-            kmeans = KMeans(n_clusters=k, random_state=42, n_init=Config.KMEANS_N_INIT)
-            labels = kmeans.fit_predict(tfidf_matrix)
-            if len(set(labels)) < 2:  # 聚类数少于2，无法计算轮廓系数
-                continue
-            scores[k] = silhouette_score(tfidf_matrix, labels)
-        except Exception as e:
-            print(f"K={k}聚类失败：{e}")
+            km = KMeans(n_clusters=k, random_state=42, n_init=Config.KMEANS_N_INIT)
+            labels = km.fit_predict(embedding)
+        except Exception as exc:
+            print(f"    K={k} 聚类失败：{exc}")
+            continue
+        if len(set(labels)) < 2:
             continue
 
-    all_scores = sorted(scores.items())  # [(k, score), ...]
+        shares = np.bincount(labels) / len(labels) * 100
+        dense = embedding.toarray() if hasattr(embedding, "toarray") else embedding
+        eval_rows.append({
+            "k": k,
+            "inertia": float(km.inertia_),
+            "silhouette": float(silhouette_score(embedding, labels)),
+            "calinski_harabasz": float(calinski_harabasz_score(dense, labels)),
+            "davies_bouldin": float(davies_bouldin_score(dense, labels)),
+            "min_cluster_share_pct": float(shares.min()),
+            "max_cluster_share_pct": float(shares.max()),
+        })
+        fitted[k] = labels
 
-    # 选K：轮廓系数对短文本命名数据较噪声、随K弱上升，不追求最大值；
-    # 取「与峰值差距 ≤0.01 的最小 K」，避免单调爬到上限（原问题）也避免过早停在 2
-    positive_ks = [k for k, s in all_scores if s > 0]
-    best_k = start_k
-    best_score = -1
-    if positive_ks:
-        max_score = max(scores[k] for k in positive_ks)
-        for k in positive_ks:
-            if scores[k] >= max_score - Config.SILHOUETTE_PEAK_TOLERANCE:
-                best_k = k
-                best_score = scores[k]
-                break
+    if not eval_rows:
+        return _empty("fallback:no_valid_k")
 
-    # 用选定的最优K重新训练
-    final_kmeans = KMeans(n_clusters=best_k, random_state=42, n_init=Config.KMEANS_N_INIT)
-    valid_labels = final_kmeans.fit_predict(tfidf_matrix)
+    # SSE 逐档降幅：肘部法看的量
+    prev = None
+    for row in eval_rows:
+        row["sse_drop_pct"] = None if prev is None else round(
+            100 * (prev - row["inertia"]) / prev, 2)
+        prev = row["inertia"]
 
-    # 映射回原始索引
-    final_labels = [0] * len(names)
+    # ---- 4. 定 K ----
+    best_k, reason, weak = start_k, "auto:business-window+parsimony", True
+    if override and Config.K_SELECTION_MODE == "manual":
+        best_k = int(override[0])
+        reason = f"manual:{override[1]}"
+        weak = False
+    else:
+        window_peak = max(r["silhouette"] for r in eval_rows)
+        weak = window_peak < Config.WEAK_STRUCTURE_FLOOR
+        feasible = [r for r in eval_rows if r["min_cluster_share_pct"] >= Config.MIN_CLUSTER_SHARE]
+        if feasible:
+            feasible_peak = max(r["silhouette"] for r in feasible)
+            picks = [r for r in feasible if r["silhouette"] >= Config.PARSIMONY_RATIO * feasible_peak]
+            best_k = min(r["k"] for r in picks)
+        else:
+            best_k = min(r["k"] for r in eval_rows)
+            reason = "auto:fragmented"
+        if weak:
+            reason += "|weak-structure"
+
+    selected = next((r for r in eval_rows if r["k"] == best_k), None)
+    best_score = selected["silhouette"] if selected else None
+    for row in eval_rows:
+        row["selected"] = row["k"] == best_k
+        row["selection_reason"] = reason
+
+    # ---- 5. 用选定的 K 重训（手工覆盖的 K 也要真的跑一次）----
+    if best_k in fitted:
+        valid_labels = fitted[best_k]
+    else:
+        valid_labels = KMeans(n_clusters=best_k, random_state=42,
+                              n_init=Config.KMEANS_N_INIT).fit_predict(embedding)
+
+    final_labels = [0] * n_all
     for i, idx in enumerate(valid_indices):
         final_labels[idx] = valid_labels[i]
 
-    # 对比度取词：簇心 − 全体文档 TF-IDF 均值，取差值最大且 >0 的词
+    # ---- 6. 对比度取词：回到原始 TF-IDF 空间 ----
     feature_names = tfidf.get_feature_names_out()
     global_center = np.asarray(tfidf_matrix.mean(axis=0)).reshape(-1)
     cluster_candidates = {}
     for i in range(best_k):
-        contrast = final_kmeans.cluster_centers_[i] - global_center
-        top_indices = contrast.argsort()[-min(Config.CLUSTER_TOP_K_WORDS, len(feature_names)):][::-1]
+        idx = np.where(valid_labels == i)[0]
+        if len(idx) == 0:
+            cluster_candidates[f"cluster_{i + 1}"] = []
+            continue
+        center = np.asarray(tfidf_matrix[idx].mean(axis=0)).reshape(-1)
+        contrast = center - global_center
+        top = contrast.argsort()[-min(Config.CLUSTER_TOP_K_WORDS, len(feature_names)):][::-1]
         cluster_candidates[f"cluster_{i + 1}"] = [
-            (feature_names[j], float(contrast[j])) for j in top_indices if contrast[j] > 0
+            (feature_names[j], float(contrast[j])) for j in top if contrast[j] > 0
         ]
-    # 跨簇去重：同一词只保留在对比度最高的那个簇，避免各簇关键词重复
-    best_owner = {}  # word -> (contrast, label)
+
+    # 跨簇去重：同一词只留在对比度最高的那个簇
+    best_owner = {}
     for label, pairs in cluster_candidates.items():
         for w, c in pairs:
             if w not in best_owner or c > best_owner[w][0]:
                 best_owner[w] = (c, label)
+
     cluster_keywords = {}
     for label, pairs in cluster_candidates.items():
         words = [w for w, c in pairs if best_owner[w][1] == label]
         cluster_keywords[label] = words if words else ["unknown"]
 
-    print(f"聚类结果：最优K={best_k}，轮廓系数={best_score:.3f}")
-    print(f"各K值轮廓系数：{all_scores}")
+    if best_score is not None:
+        print(f"    聚类：K={best_k}，轮廓系数={best_score:.3f}，依据={reason}")
+    else:
+        print(f"    聚类：K={best_k}，依据={reason}")
+    print("    各K轮廓系数：" + "  ".join(f"K{r['k']}:{r['silhouette']:.3f}" for r in eval_rows))
 
-    return final_labels, cluster_keywords, best_k, all_scores
+    meta = {
+        "selection_reason": reason,
+        "weak_structure": bool(weak),
+        "silhouette_selected": None if best_score is None else round(best_score, 4),
+        "n_docs": len(valid_indices),
+        "n_features": int(tfidf_matrix.shape[1]),
+        "n_svd": int(n_components) if n_components >= 2 else 0,
+    }
+    return final_labels, cluster_keywords, best_k, eval_rows, meta
 
 
 def calculate_top10_contribution(genre_df, year):
@@ -841,7 +930,9 @@ def cluster_analysis(df, sub_genre, year):
     product_names = genre_df['product_name'].fillna('unknown').tolist()
 
     try:
-        cluster_labels, cluster_keywords, best_k, all_scores = auto_cluster_names(product_names, Config.CLUSTER_RANGE)
+        override = Config.K_OVERRIDE.get((sub_genre, year))
+        cluster_labels, cluster_keywords, best_k, cluster_eval, cluster_meta = auto_cluster_names(
+            product_names, Config.CLUSTER_RANGE, override=override)
         genre_df['cluster_label'] = [f"cluster_{i + 1}" for i in cluster_labels]
     except Exception as e:
         print(f"警告：{sub_genre} - {year}年 聚类失败：{str(e)}，跳过聚类分析")
@@ -849,7 +940,13 @@ def cluster_analysis(df, sub_genre, year):
 
     results['cluster_keywords'] = cluster_keywords
     results['optimal_cluster_num'] = best_k
-    results['silhouette_scores'] = str(all_scores)
+    # 旧的 silhouette_scores 字段保留（形如 "K3:0.31 K4:0.33"），便于与历史底表对照
+    results['silhouette_scores'] = " ".join(
+        f"K{r['k']}:{r['silhouette']:.3f}" for r in cluster_eval)
+    results['cluster_eval'] = cluster_eval
+    results['cluster_note'] = cluster_meta.get('selection_reason', '')
+    results['silhouette_selected'] = cluster_meta.get('silhouette_selected')
+    results['weak_structure'] = cluster_meta.get('weak_structure')
 
     # 各聚类数据表现分析
     cluster_stats = genre_df.groupby('cluster_label').agg({
@@ -867,6 +964,9 @@ def cluster_analysis(df, sub_genre, year):
 
     cluster_stats['download_ratio'] = round(safe_division(cluster_stats['total_downloads'], total_dl) * 100, 2)
     cluster_stats['revenue_ratio'] = round(safe_division(cluster_stats['total_revenue'], total_rev) * 100, 2)
+    # 簇的产品数占比：判断「一个簇吃掉大半」还是「碎成一堆」，这是选 K 的业务约束之一
+    cluster_stats['cluster_size_share_pct'] = round(
+        safe_division(cluster_stats['product_count'], cluster_stats['product_count'].sum()) * 100, 2)
 
     results['cluster_performance'] = cluster_stats
     cluster_products = genre_df.groupby('cluster_label')['product_name'].apply(list).to_dict()
@@ -995,6 +1095,8 @@ def save_analysis_results(all_results, output_folder):
                 year = res['year']
                 optimal_cluster_num = res['optimal_cluster_num']
                 silhouette_scores = res.get('silhouette_scores', '')
+                silhouette_selected = res.get('silhouette_selected')
+                cluster_note = res.get('cluster_note', '')
                 cr3_revenue_pct = res.get('cr3_revenue_pct')
                 top3_same_cluster_count = res.get('top3_same_cluster_count')
                 new_product_top_cluster_lift = res.get('new_product_top_cluster_lift')
@@ -1019,12 +1121,15 @@ def save_analysis_results(all_results, output_folder):
                             'year': year,
                             'optimal_cluster_num': optimal_cluster_num,
                             'silhouette_scores': silhouette_scores,
+                            'silhouette_selected': silhouette_selected,
+                            'cluster_note': cluster_note,
                             'cluster_label': cluster_label,
                             'core_keywords': ', '.join(keywords),
                             'cr3_revenue_pct': cr3_revenue_pct,
                             'top3_same_cluster_count': top3_same_cluster_count,
                             'new_product_top_cluster_lift': new_product_top_cluster_lift,
                             'product_count': row['product_count'],
+                            'cluster_size_share_pct': row.get('cluster_size_share_pct'),
                             'total_downloads': row['total_downloads'],
                             'avg_downloads': row['avg_downloads'],
                             'total_revenue': row['total_revenue'],
@@ -1041,6 +1146,56 @@ def save_analysis_results(all_results, output_folder):
             if merged_cluster_data:
                 merged_cluster_df = pd.DataFrame(merged_cluster_data)
                 _rename_dimension_column(merged_cluster_df).to_excel(writer, sheet_name='聚类分析汇总', index=False)
+
+            # ======================== 新增 sheet 1：K 选择评估 ========================
+            # 把选 K 的依据全部摊开：肘部（inertia 及降幅）、轮廓系数、CH、DB、簇规模、是否被选中。
+            # 为什么需要这张表：这类产品名数据上四个指标互相打架，K 不是「算」出来的，
+            # 而是「在业务粒度区间内按简约原则选出来、再用指标校验」的，依据必须可查。
+            k_eval_data = []
+            member_data = []
+            for res in filter_none_results(all_results['cluster']):
+                for row in res.get('cluster_eval', []):
+                    k_eval_data.append({
+                        'sub_genre': res['sub_genre'],
+                        'year': res['year'],
+                        'k': row['k'],
+                        'inertia': round(row['inertia'], 4),
+                        'sse_drop_pct': row.get('sse_drop_pct'),
+                        'silhouette': round(row['silhouette'], 4),
+                        'calinski_harabasz': round(row['calinski_harabasz'], 2),
+                        'davies_bouldin': round(row['davies_bouldin'], 4),
+                        'min_cluster_share_pct': round(row['min_cluster_share_pct'], 2),
+                        'max_cluster_share_pct': round(row['max_cluster_share_pct'], 2),
+                        'selected': row.get('selected'),
+                        'selection_reason': row.get('selection_reason'),
+                    })
+
+                # ==================== 新增 sheet 2：聚类成员明细 ====================
+                # 簇标签是自动生成的，光看关键词无法判断这个簇到底聚了谁；
+                # 逐产品列出来才能人工复核「这一簇是不是同一个细分」。
+                perf_df = res.get('cluster_performance')
+                share_map = {}
+                if perf_df is not None and 'cluster_size_share_pct' in perf_df.columns:
+                    share_map = dict(zip(perf_df['cluster_label'], perf_df['cluster_size_share_pct']))
+                for label, products in res.get('cluster_product_mapping', {}).items():
+                    for pname in products:
+                        member_data.append({
+                            'sub_genre': res['sub_genre'],
+                            'year': res['year'],
+                            'cluster_label': label,
+                            'cluster_size': len(products),
+                            'cluster_size_share_pct': share_map.get(label),
+                            'product_name': pname,
+                        })
+
+            if k_eval_data:
+                _rename_dimension_column(pd.DataFrame(k_eval_data)).to_excel(
+                    writer, sheet_name='K选择评估', index=False)
+                print(f"K 选择评估表：{len(k_eval_data)} 行")
+            if member_data:
+                _rename_dimension_column(pd.DataFrame(member_data)).to_excel(
+                    writer, sheet_name='聚类成员明细', index=False)
+                print(f"聚类成员明细：{len(member_data)} 行")
 
             # TOP10产品详情（含双维度贡献率）
             if top_products_data:
@@ -1157,6 +1312,69 @@ def plot_acquisition_efficiency_chart(all_results, output_folder):
         print(f"绘制吸量效率图表失败：{str(e)}")
 
 
+def plot_k_selection_chart(all_results, output_folder):
+    """
+    绘制「K 选择曲线」：左轴轮廓系数（实线，越高越好），右轴 inertia（虚线，越低越好）。
+    一张图能同时看出两件事——轮廓系数是否随 K 单调上升、SSE 有没有肘部拐点。
+    如果两条线都不给拐点（这类产品名数据的实际情况），说明 K 不是数据能定的，
+    必须回到业务粒度区间 + 简约原则，并允许人工覆盖。
+    """
+    rows = []
+    for res in [r for r in all_results['cluster'] if r]:
+        for row in res.get('cluster_eval', []):
+            rows.append({
+                'sub_genre': res['sub_genre'],
+                'year': res['year'],
+                'k': row['k'],
+                'silhouette': row['silhouette'],
+                'inertia': row['inertia'],
+                'selected': bool(row.get('selected')),
+            })
+    if not rows:
+        print("警告：没有聚类评估数据可绘制 K 选择曲线")
+        return
+
+    eval_df = pd.DataFrame(rows)
+    try:
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
+        plt.rcParams['axes.unicode_minus'] = False
+
+        groups = sorted(eval_df['sub_genre'].unique())
+        years = sorted(eval_df['year'].unique())
+        fig, axes = plt.subplots(len(groups), 1, figsize=(12, 3.2 * len(groups)), squeeze=False)
+
+        for ax_row, sg in zip(axes, groups):
+            ax = ax_row[0]
+            ax2 = ax.twinx()
+            for year in years:
+                d = eval_df[(eval_df['sub_genre'] == sg) & (eval_df['year'] == year)].sort_values('k')
+                if d.empty:
+                    continue
+                ax.plot(d['k'], d['silhouette'], marker='o', linewidth=1.4, label=str(int(year)))
+                ax2.plot(d['k'], d['inertia'], marker='x', linewidth=1.0,
+                         linestyle='--', alpha=0.5)
+                # 用空心黑圈标出该年份实际选用的 K
+                chosen = d[d['selected']]
+                if not chosen.empty:
+                    ax.scatter(chosen['k'], chosen['silhouette'], s=150, facecolors='none',
+                               edgecolors='black', linewidths=1.2, zorder=5)
+
+            ax.set_title(f'{sg}：轮廓系数（实线）与 inertia（虚线）随 K 的变化', fontsize=11)
+            ax.set_xlabel('簇数 K')
+            ax.set_ylabel('轮廓系数')
+            ax2.set_ylabel('inertia')
+            ax.set_xticks(sorted(eval_df['k'].unique()))
+            ax.grid(alpha=0.25)
+            ax.legend(title='年份', fontsize=7, ncol=len(years))
+
+        fig.tight_layout()
+        fig.savefig(os.path.join(output_folder, "k_selection_curves.png"), dpi=200, bbox_inches='tight')
+        plt.close(fig)
+        print("K 选择曲线图已保存")
+    except Exception as e:
+        print(f"绘制 K 选择曲线失败：{str(e)}")
+
+
 # ======================== 主函数 =========================
 def main():
     print("=" * 50)
@@ -1217,6 +1435,7 @@ def main():
     print("\n5. 生成可视化图表...")
     plot_concentration_chart(all_results, Config.OUTPUT_FOLDER)
     plot_acquisition_efficiency_chart(all_results, Config.OUTPUT_FOLDER)
+    plot_k_selection_chart(all_results, Config.OUTPUT_FOLDER)
 
     print("\n" + "=" * 50)
     print(f"5年数据分析完成！结果已保存至 {Config.OUTPUT_FOLDER}")

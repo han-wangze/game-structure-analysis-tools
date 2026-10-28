@@ -164,67 +164,53 @@ python cohort_tracking.py                # 同上
 
 ### 数据与范围
 
-| 数据集 | 排序轴 | 维度 | 覆盖 | 逐年产品数 |
-|---|---|---|---|---|
-| 收入榜导出 | 收入 | Card Battler / Match Merge 2 / Real-Time Strategy | 美国，2021–2025 | 1,512–2,983 |
-| 下载榜导出 | 下载 | 4X Strategy / Block / Solitaire | 美国，2021–2025 | 2,259–5,159 |
+本节只展开一份导出：收入榜导出的三个品类，只看收入。
 
-数据是 Sensor Tower 双平台应用排行榜的逐年导出（美国），已按 `Category = 'Games'` 过滤。另跑了 10 个题材维度（下载轴），但题材的作用是吸量、口径与品类不同，不与品类并列，故不进本节结论。各小节分别出自哪个脚本、哪张表，见本节末「这些数字从哪来」。
+| 排序轴 | 维度 | 覆盖 | 逐年产品数 |
+|---|---|---|---|
+| 收入 | Card Battler / Match Merge 2 / Real-Time Strategy | 美国，2021–2025 | 1,512–2,983 |
 
-![头部集中度与头部换血率：两组样本的五年对比](docs/figures/concentration_vs_churn.png)
+数据是 Sensor Tower 双平台应用排行榜的逐年导出（美国），已按 `Category = 'Games'` 过滤。下载榜导出（Block / Solitaire / 4X Strategy）与 10 个题材维度跑的是同一套脚本，但它们按下载排序，口径与收入轴不同，不与收入轴并列，本节不展开。各小节出自哪个脚本、哪张表，见本节末「这些数字从哪来」。
 
-图由仓库里的 `make_readme_figures.py` 从这两份产出表直接生成，不另算指标。
+![收入榜导出三个品类的头部集中度走势](docs/figures/revenue_cr5_trend.png)
 
-### ① 集中度上两组泾渭分明，换血率上分不开
+图由仓库里的 `make_readme_figures.py` 从产出表直接生成，不另算指标。
 
-2025 年按各自排序轴算的 CR5：收入轴 Card Battler 87.0%、Real-Time Strategy 88.8%、Match Merge 2 79.5%；下载轴 Block 57.1%、4X Strategy 43.0%、Solitaire 19.0%。五年里两组**一次都没有交叉**——最窄的 2022 与 2024 都还差 13.2 个百分点，最宽的 2021 差 38.7 个百分点。
+### ① 头部集中度：三个品类都在高位，走势分三种
 
-换血率没有这种分界。Card Battler 常年 15%–20%，看着很固；但 Match Merge 2 是 25%–45%，高于下载轴的 4X Strategy（20%–30%），Block 则是 30%–65%。所以「变现型守位置、流量型换位置」**只有前半截成立**：收入轴的集中度确实高一档，但头部流动性不是两类结构的稳定标签——能说的是「流量型头部换人更频繁」，不能说两者是两种形态。
+2025 年 CR5：Real-Time Strategy 88.8%、Card Battler 87.0%、Match Merge 2 79.5%；五年里最低的一档是 Card Battler 2022 年的 62.7%。
 
-### ② 头部固化伴随头部留存下滑——但只有一个案例撑得住
+走势分三种：Card Battler 从 2021 年 82.1% 回落到 2022 年 62.7%，之后逐年升到 87.0%；Real-Time Strategy 在 2023 年触底 71.8% 后回升；Match Merge 2 五年都在 79.5%–83.0%，基本走平。
+
+### ② 集中度接近，头部结构可以很不一样
+
+Top20 换血率（当年在榜且上一年不在的比例）：Card Battler 15%–20%，Real-Time Strategy 25%–35%，Match Merge 2 25%–45%。Match Merge 2 的 CR5 与另两个相差不到十个点，头部却换得勤得多。
+
+### ③ 变现路径：产品模型标签直接给分布
+
+2025 年按产品数：Card Battler 81.1%、Real-Time Strategy 67.4% 是中重度；Match Merge 2 是超休闲 52.5% 加休闲 39.5%，中重度只有 2.1%。两个以中重度内购为主、一个以轻量走量为主，路径差异可以直接从标签分布读出来。
+
+### ④ 头部留存：样本太小，只看方向
 
 在首个完整经营年进入 Top100 的新品，次年还能保住位置的比例：Card Battler 73.3% → 61.5% → 46.7%（2022–2024 观察年），Real-Time Strategy 73.9% → 60.0% → 68.4%，Match Merge 2 48.8% → 54.1% → 45.5%。
 
-只有 Card Battler 是单调下滑，另两个（同属收入轴）是波动，谈不上趋势。而且这三条队列每年只有 13–15 个产品——一条 15 个样本的比率线，少保住 4 个产品就掉 27 个百分点。
+只有 Card Battler 是单调下滑，另两个是波动。每条队列每年只有 13–15 个产品——一条 15 个样本的比率线，少保住 4 个产品就掉 27 个百分点，只能当方向。
 
-下载轴的三个品类跑了同一张表，方向更乱：4X Strategy 66.7% → 63.6% → 35.7%、Block 33.3% → 70.0% → 50.0%、Solitaire 60.0% → 36.4% → 66.7%。**六条队列没一条能当趋势外推，只能当方向。**
-
-### ③ 一个品类靠什么赚钱，标签分布直接给答案
-
-2025 年按产品数占比：Solitaire 95.1% 是休闲；4X Strategy 91.7% 是中重度；Card Battler 81.1%、Real-Time Strategy 67.4% 也以中重度为主；Block 是休闲 63.3% 加超休闲 31.2%；Match Merge 2 是超休闲 52.5% 加休闲 39.5%，中重度只剩 2.1%。
-
-六个品类里五个有单一模型档占六成以上，其中两个超过九成；唯一的例外（Match Merge 2）是两个轻量档合计九成、几乎没有中重度。变现路径不用猜，标签分布就写着。
-
-### ④ 进入判断：四个可进入、两个被集中度封顶
-
-| 品类 | 样本 | 通过项 | 否决项 | 判断 |
-|---|---|---|---|---|
-| Match Merge 2 | 收入轴 | 4/5 | 无 | 可进入 |
-| 4X Strategy | 下载轴 | 5/5 | 无 | 可进入 |
-| Block | 下载轴 | 4/5 | 无 | 可进入 |
-| Solitaire | 下载轴 | 5/5 | 无 | 可进入 |
-| Card Battler | 收入轴 | 3/5 | CR5 87.0%，头部固化且仍在上升 | 有条件进入 |
-| Real-Time Strategy | 收入轴 | 4/5 | CR5 88.8%，头部固化且仍在上升 | 有条件进入 |
-
-Real-Time Strategy 五项里过了四项，只因 CR5 越过否决线被封顶；Card Battler 除否决项外，规模也只有同组中位的 0.90 倍。
-
-> 这些结论的适用范围就是这两份导出的覆盖范围——不是全市场，换一份导出要重跑。
+> 进入判断表的输出格式与阈值见 §2；判定结果随数据而定，不在 README 里替数据下结论。
 
 ### 这些数字从哪来
 
 | 小节 | 脚本 | 产出 | 用到的表 / 列 |
 |---|---|---|---|
-| ① 集中度与换血率 | `market_structure_analysis.py` | `市场结构分析_*.xlsx` | 「五年趋势」的 `CR5_<排序轴>` 与 `头部换血率%` 两列 |
-| 图 | `make_readme_figures.py` | 同上，收入轴与下载轴各一份 | 只读「五年趋势」的这两列，不重算任何指标 |
-| ② 头部留存 | `cohort_tracking.py` | `产品轨迹分析_*.xlsx` | 「头部留存」的 `头部留存率%` |
-| ③ 产品模型 | `market_structure_analysis.py` | `市场结构分析_*.xlsx` | 「产品模型分析」的 `产品数占比%`，取 2025 年 |
-| ④ 进入判断 | `market_structure_analysis.py` | `市场结构分析_*.xlsx` | 「进入判断」全表，含 `判定规则` 与 `适用边界` 两列 |
+| ① 集中度、② 换血率、③ 产品模型 | `market_structure_analysis.py` | `市场结构分析_*.xlsx`（收入轴） | 「五年趋势」的 `CR5_revenue`、`头部换血率%`；「产品模型分析」的 `产品数占比%` |
+| 图 | `make_readme_figures.py` | 同上 | 只读「五年趋势」的 `CR5_revenue` 列 |
+| ④ 头部留存 | `cohort_tracking.py` | `产品轨迹分析_*.xlsx`（收入轴） | 「头部留存」的 `头部留存率%` |
 
 三个脚本都直接读榜单 csv，彼此不依赖中间文件。
 
-复现 §6 一共跑四次：`market_structure_analysis.py` 与 `cohort_tracking.py` 各跑收入轴、下载轴两遍，每次只改 `DATA_FOLDER` 与 `RANK_AXIS`（`DIMENSION` 都是 `sub_genre`）；最后跑一次 `make_readme_figures.py` 出图。
+复现本节跑三次：`market_structure_analysis.py`、`cohort_tracking.py` 各一次（`DATA_FOLDER` 指向同一份收入榜导出，`DIMENSION=sub_genre`，`RANK_AXIS=revenue`），最后跑一次 `make_readme_figures.py` 出图。
 
-§6 只用了 `market_structure_analysis.py` 与 `cohort_tracking.py` 合计 9 张底表里的 4 张。没进来的：`genre_analysis.py` 的 5 张底表与 2 张对比图（它的逐年指标在「五年趋势」里已按同一口径重算，不重复引）、「五年趋势」的其余十多列、「发行商与出海」、「市场分布」，以及 `cohort_tracking.py` 的「队列进入率」「头部换血」「存活者 vs 退出者」。
+§6 用了 `market_structure_analysis.py` 与 `cohort_tracking.py` 合计 9 张底表里的 3 张。没进来的：`genre_analysis.py` 的 5 张底表与 2 张对比图（它的逐年指标在「五年趋势」里已按同一口径重算，不重复引）、「五年趋势」的其余十多列、「发行商与出海」、「市场分布」、「进入判断」（结论不在 README 里给），以及 `cohort_tracking.py` 的「队列进入率」「头部换血」「存活者 vs 退出者」。
 
 ## 依赖
 

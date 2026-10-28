@@ -222,6 +222,8 @@ Real-Time Strategy 五项里过了四项，只因 CR5 越过否决线被封顶�
 
 三个脚本都直接读榜单 csv，彼此不依赖中间文件。
 
+复现 §6 一共跑四次：`market_structure_analysis.py` 与 `cohort_tracking.py` 各跑收入轴、下载轴两遍，每次只改 `DATA_FOLDER` 与 `RANK_AXIS`（`DIMENSION` 都是 `sub_genre`）；最后跑一次 `make_readme_figures.py` 出图。
+
 §6 只用了 `market_structure_analysis.py` 与 `cohort_tracking.py` 合计 9 张底表里的 4 张。没进来的：`genre_analysis.py` 的 5 张底表与 2 张对比图（它的逐年指标在「五年趋势」里已按同一口径重算，不重复引）、「五年趋势」的其余十多列、「发行商与出海」、「市场分布」，以及 `cohort_tracking.py` 的「队列进入率」「头部换血」「存活者 vs 退出者」。
 
 ## 依赖

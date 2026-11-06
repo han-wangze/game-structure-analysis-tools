@@ -140,14 +140,16 @@ def calculate_acquisition_efficiency(df, year):
     tail_count = len(tail_df) or 1
     efficiency_results['tail_avg_acquisition'] = round(safe_division(tail_df['downloads_abs'].sum(), tail_count), 2)
 
-    # 4. 吸量增长效率（年度下载增长值/上线时长）
+    # 4. 年度下载增量 ÷ 上线至年末天数（辅助描述指标；上线日期缺失记缺失值，不补 0）
     df['release_days'] = df['release_date'].apply(lambda x: get_product_lifecycle_days(x, year))
-    df['acquisition_growth_efficiency'] = safe_division(df['downloads_growth'], df['release_days'])
-    efficiency_results['avg_acquisition_growth_efficiency'] = round(df['acquisition_growth_efficiency'].mean(), 4)
+    df['downloads_growth_per_launch_day'] = np.where(
+        df['release_days'] > 0, df['downloads_growth'] / df['release_days'], np.nan)
+    efficiency_results['avg_downloads_growth_per_launch_day'] = round(
+        df['downloads_growth_per_launch_day'].mean(), 4)
 
-    # 5. 吸量留存效率（DAU/下载量）
-    df['acquisition_retention_efficiency'] = safe_division(df['dau_abs'], df['downloads_abs']) * 100
-    efficiency_results['avg_acquisition_retention_efficiency'] = round(df['acquisition_retention_efficiency'].mean(), 2)
+    # 5. DAU / 累计下载量之比（活跃规模与累计下载规模之比，不是用户留存率）
+    df['acquisition_dau_downloads_ratio'] = safe_division(df['dau_abs'], df['downloads_abs']) * 100
+    efficiency_results['avg_acquisition_dau_downloads_ratio'] = round(df['acquisition_dau_downloads_ratio'].mean(), 2)
 
     # 6. 吸量变现效率（RPD）
     efficiency_results['avg_acquisition_monetization_efficiency'] = round(df['rpd'].mean(), 4)
@@ -158,7 +160,7 @@ def calculate_acquisition_efficiency(df, year):
 def get_product_lifecycle_days(release_date, analysis_year):
     """计算产品上线时长（天）"""
     if pd.isna(release_date):
-        return 0
+        return np.nan
     end_date = pd.to_datetime(f"{analysis_year}-12-31")
     return (end_date - release_date).days
 
@@ -664,15 +666,15 @@ def existing_product_analysis(df, sub_genre, year):
         mature_contribution = round(safe_division(mature_dl_growth, existing_total_dl_growth) * 100, 2)
         results['mature_product_growth_contribution_pct'] = mature_contribution
 
-        # 2. decline_product_dau_retention_ratio：衰退产品DAU留存率（相对上线首年）
-        # 简化计算：用当前DAU / 衰退产品平均下载量 * 100（替代首年DAU）
+        # 2. decline_product_dau_downloads_ratio：衰退产品 DAU / 下载量之比
+        # 粗略的活跃-下载规模比，不是用户留存率（没有用户级 cohort 数据）
         if len(decline_df) > 0:
             decline_current_dau = decline_df['dau_abs'].mean()
             decline_avg_dl = decline_df['downloads_abs'].mean()
-            decline_dau_retention = round(safe_division(decline_current_dau, decline_avg_dl) * 100, 2)
+            decline_dau_downloads = round(safe_division(decline_current_dau, decline_avg_dl) * 100, 2)
         else:
-            decline_dau_retention = 0
-        results['decline_product_dau_retention_ratio'] = decline_dau_retention
+            decline_dau_downloads = 0
+        results['decline_product_dau_downloads_ratio'] = decline_dau_downloads
 
         # 3. existing_product_age_growth_correlation：存量产品年龄与年度下载增长值的相关系数（适配年度）
         existing_df['release_days'] = (current_date - existing_df['release_date']).dt.days.fillna(0)
@@ -686,7 +688,7 @@ def existing_product_analysis(df, sub_genre, year):
         results['decline_avg_dau_ratio'] = 0
         # 字段默认值
         results['mature_product_growth_contribution_pct'] = 0
-        results['decline_product_dau_retention_ratio'] = 0
+        results['decline_product_dau_downloads_ratio'] = 0
         results['existing_product_age_growth_correlation'] = 0
 
     return results
@@ -741,8 +743,8 @@ def save_analysis_results(all_results, output_folder):
                     'head_avg_acquisition': res.get('head_avg_acquisition', 0),
                     'mid_avg_acquisition': res.get('mid_avg_acquisition', 0),
                     'tail_avg_acquisition': res.get('tail_avg_acquisition', 0),
-                    'avg_acquisition_growth_efficiency': res.get('avg_acquisition_growth_efficiency', 0),
-                    'avg_acquisition_retention_efficiency': res.get('avg_acquisition_retention_efficiency', 0),
+                    'avg_downloads_growth_per_launch_day': res.get('avg_downloads_growth_per_launch_day', 0),
+                    'avg_acquisition_dau_downloads_ratio': res.get('avg_acquisition_dau_downloads_ratio', 0),
                     'avg_acquisition_monetization_efficiency': res.get('avg_acquisition_monetization_efficiency', 0)
                 }
                 acquisition_data.append(acquisition_res)

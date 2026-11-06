@@ -87,19 +87,31 @@ def load_analysis_data(file_path):
         return None
 
 
+def _id_col(df):
+    """产品跨年追踪主键列：优先 Unified ID；数据集缺该列时退回 Unified Name 并提示。
+
+    用名称做跨年主键的问题：产品更名会被当成两个产品，同名产品会被误并成一个。
+    """
+    if 'Unified ID' in df.columns:
+        return 'Unified ID'
+    print("⚠️ 数据集缺少 Unified ID 列，退回 Unified Name 作为主键（更名/同名产品会被误并或误分）")
+    return 'Unified Name'
+
+
 def get_top20_products_with_ranks(df):
     """
     按年份-国家-品类维度，获取每年各品类下载量和收入top20的产品及排名
         """
     top20_dict = {
-        'download': {},  # key: (年份, 国家, 品类), value: 产品名称列表
-        'revenue': {}  # key: (年份, 国家, 品类), value: 产品名称列表
+        'download': {},  # key: (年份, 国家, 品类), value: 产品主键列表
+        'revenue': {}  # key: (年份, 国家, 品类), value: 产品主键列表
     }
 
     rank_dict = {
-        'download': {},  # key: (年份, 国家, 品类, 产品名), value: 排名
-        'revenue': {}  # key: (年份, 国家, 品类, 产品名), value: 排名
+        'download': {},  # key: (年份, 国家, 品类, 产品主键), value: 排名
+        'revenue': {}  # key: (年份, 国家, 品类, 产品主键), value: 排名
     }
+    key_col = _id_col(df)
 
     # 遍历所有年份、国家、品类
     years = ['2021', '2022', '2023', '2024', '2025']
@@ -121,17 +133,17 @@ def get_top20_products_with_ranks(df):
 
                 # 下载量排名（本品类内降序）
                 download_sorted = year_country_genre_df.sort_values('下载', ascending=False).reset_index(drop=True)
-                download_top20 = download_sorted.head(20)['Unified Name'].tolist()
+                download_top20 = download_sorted.head(20)[key_col].tolist()
                 # 记录本品类内所有产品的下载排名
                 for idx, row in download_sorted.iterrows():
-                    rank_dict['download'][(year, country, genre, row['Unified Name'])] = idx + 1  # 排名从1开始
+                    rank_dict['download'][(year, country, genre, row[key_col])] = idx + 1  # 排名从1开始
 
                 # 收入排名（本品类内降序）
                 revenue_sorted = year_country_genre_df.sort_values('收入', ascending=False).reset_index(drop=True)
-                revenue_top20 = revenue_sorted.head(20)['Unified Name'].tolist()
+                revenue_top20 = revenue_sorted.head(20)[key_col].tolist()
                 # 记录本品类内所有产品的收入排名
                 for idx, row in revenue_sorted.iterrows():
-                    rank_dict['revenue'][(year, country, genre, row['Unified Name'])] = idx + 1  # 排名从1开始
+                    rank_dict['revenue'][(year, country, genre, row[key_col])] = idx + 1  # 排名从1开始
 
                 top20_dict['download'][(year, country, genre)] = download_top20
                 top20_dict['revenue'][(year, country, genre)] = revenue_top20
@@ -151,12 +163,13 @@ def classify_products(df, top20_dict):
     """
     # 存储分类结果
     product_classification = {}
-    # 按产品-国家-品类维度去重
-    all_product_countries_genres = df[['Unified Name', '国家', '合并后品类']].drop_duplicates()
+    # 按产品主键-国家-品类维度去重
+    key_col = _id_col(df)
+    all_product_countries_genres = df[[key_col, '国家', '合并后品类']].drop_duplicates()
     years = ['2021', '2022', '2023', '2024', '2025']
 
     for _, row in all_product_countries_genres.iterrows():
-        product_name = row['Unified Name']
+        product_id = row[key_col]
         country = row['国家']
         genre = row['合并后品类']
 
@@ -167,14 +180,14 @@ def classify_products(df, top20_dict):
         for year in years:
             # 检查是否有该年份-品类数据
             year_country_genre_mask = (df['年份'] == year) & (df['国家'] == country) & \
-                                      (df['合并后品类'] == genre) & (df['Unified Name'] == product_name)
+                                      (df['合并后品类'] == genre) & (df[key_col] == product_id)
             if len(df[year_country_genre_mask]) == 0:
                 yearly_status[year] = '无数据'
                 continue
 
             # 检查是否在本品类内的下载或收入top20（任一即可）
-            in_download_top20 = product_name in top20_dict['download'].get((year, country, genre), [])
-            in_revenue_top20 = product_name in top20_dict['revenue'].get((year, country, genre), [])
+            in_download_top20 = product_id in top20_dict['download'].get((year, country, genre), [])
+            in_revenue_top20 = product_id in top20_dict['revenue'].get((year, country, genre), [])
 
             if in_download_top20 or in_revenue_top20:
                 yearly_status[year] = '在榜'
@@ -195,7 +208,7 @@ def classify_products(df, top20_dict):
         else:
             classification = '从未在榜'
 
-        product_classification[(product_name, country, genre)] = {
+        product_classification[(product_id, country, genre)] = {
             'classification': classification,
             'yearly_status': yearly_status,
             'total_years_in_top20': total_years_in_top20,
@@ -210,20 +223,21 @@ def add_rank_and_classification_columns(df, rank_dict, product_classification):
     为DataFrame添加下载排名（本品类）、收入排名（本品类）、产品分类字段
     """
     df = df.copy()
+    key_col = _id_col(df)
 
-    # 添加排名字段（基于年份-国家-品类-产品名获取排名）
+    # 添加排名字段（基于年份-国家-品类-产品主键获取排名）
     def get_rank(row, rank_type):
         """获取单个产品在本品类内的排名"""
-        key = (row['年份'], row['国家'], row['合并后品类'], row['Unified Name'])
+        key = (row['年份'], row['国家'], row['合并后品类'], row[key_col])
         return rank_dict[rank_type].get(key, np.nan)
 
     df['下载排名（本品类）'] = df.apply(lambda row: get_rank(row, 'download'), axis=1)
     df['收入排名（本品类）'] = df.apply(lambda row: get_rank(row, 'revenue'), axis=1)
 
-    # 添加产品分类字段（基于产品-国家-品类维度）
+    # 添加产品分类字段（基于产品主键-国家-品类维度）
     def get_classification(row):
         """获取产品在本品类内的分类"""
-        key = (row['Unified Name'], row['国家'], row['合并后品类'])
+        key = (row[key_col], row['国家'], row['合并后品类'])
         if key in product_classification:
             return product_classification[key]['classification']
         return '未知'
@@ -231,7 +245,7 @@ def add_rank_and_classification_columns(df, rank_dict, product_classification):
     # 添加年度状态字段
     def get_yearly_status(row):
         """获取该年份在本品类内的在榜状态"""
-        key = (row['Unified Name'], row['国家'], row['合并后品类'])
+        key = (row[key_col], row['国家'], row['合并后品类'])
         if key in product_classification:
             yearly_status = product_classification[key]['yearly_status']
             return yearly_status.get(row['年份'], '未知')

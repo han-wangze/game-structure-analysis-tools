@@ -1,6 +1,6 @@
 # genre_analysis.py 输出字段说明
 
-输出文件：`game_category_analysis_report_5years.xlsx`，共 8 张底表。除「TOP10产品详情」「K选择评估」「聚类成员明细」外，每行 = 一个维度值 × 一个年份。
+输出文件：`game_category_analysis_report_5years.xlsx`，共 5 张底表。除「TOP10产品详情」外，每行 = 一个维度值 × 一个年份。
 
 ## 通用口径
 
@@ -76,8 +76,8 @@
 | `category_avg_acquisition` | 浮点 | 品类平均吸量（每产品下载量） | 品类下载合计 ÷ 产品数 |
 | `new_product_avg_acquisition` | 浮点 | 新品平均吸量 | 新品下载合计 ÷ 新品数 |
 | `head_avg_acquisition` / `mid_avg_acquisition` / `tail_avg_acquisition` | 浮点 | 各层平均吸量 | 该层下载合计 ÷ 该层产品数 |
-| `avg_acquisition_growth_efficiency` | 浮点 | 单位上线时长的下载增长 | 下载增长 ÷ 上线天数，取均值 |
-| `avg_acquisition_retention_efficiency` | 浮点 | 留存效率（%） | DAU ÷ 下载量，取均值 |
+| `avg_downloads_growth_per_launch_day` | 浮点 | 上线期间日均下载增量（辅助指标） | 年度下载增量 ÷ 上线至年末天数，取均值；上线日期缺失或日期在未来时记缺失值。仅作描述参考，不作为任何判断依据 |
+| `avg_acquisition_dau_downloads_ratio` | 浮点 | DAU/下载比（%） | DAU ÷ 累计下载量，取均值；是活跃规模与累计下载规模之比，**不是用户留存率**（无用户级 cohort 数据） |
 | `avg_acquisition_monetization_efficiency` | 浮点 | 变现效率 | 品类 RPD 均值 |
 
 **变现差异**
@@ -89,7 +89,7 @@
 
 ## 2. 吸量效率分析
 
-`sub_genre`、`year` 同上，其余为第 1 张表「吸量效率」部分的 9 个字段：`category_avg_acquisition`、`new_product_avg_acquisition`、`head_avg_acquisition`、`mid_avg_acquisition`、`tail_avg_acquisition`、`avg_acquisition_growth_efficiency`、`avg_acquisition_retention_efficiency`、`avg_acquisition_monetization_efficiency`。口径见上表。
+`sub_genre`、`year` 同上，其余为第 1 张表「吸量效率」部分的 9 个字段：`category_avg_acquisition`、`new_product_avg_acquisition`、`head_avg_acquisition`、`mid_avg_acquisition`、`tail_avg_acquisition`、`avg_downloads_growth_per_launch_day`、`avg_acquisition_dau_downloads_ratio`、`avg_acquisition_monetization_efficiency`。口径见上表。
 
 ## 3. 新品表现分析
 
@@ -121,7 +121,7 @@
 | `decline_avg_dl` / `decline_avg_rev` | 浮点 | 衰退产品平均下载 / 收入 | — |
 | `decline_avg_dau_ratio` | 浮点 | 衰退产品 DAU / 下载量（%） | — |
 | `mature_product_growth_contribution_pct` | 浮点 | 成熟产品在存量增长中的占比（%） | 成熟产品下载增长 ÷ 存量下载增长 |
-| `decline_product_dau_retention_ratio` | 浮点 | 衰退产品 DAU 留存（%） | 衰退产品 DAU ÷ 平均下载量 |
+| `decline_product_dau_downloads_ratio` | 浮点 | 衰退产品 DAU/下载比（%） | 衰退产品平均 DAU ÷ 平均下载量；活跃-下载规模之比，**不是用户留存率** |
 | `existing_product_age_growth_correlation` | 浮点 | 上线时长与下载增长的相关性 | Pearson 相关系数（−1 ~ 1） |
 
 ## 5. market_structure_analysis.py 输出字段

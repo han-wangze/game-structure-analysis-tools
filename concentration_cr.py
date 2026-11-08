@@ -95,7 +95,11 @@ def calculate_market_share(df, country, genre, year):
         print(f"  ❌ {country}-{genre}-{year}: 无数据")
         # 根据品类返回CR4/CR5默认值
         cr_key = 'cr4' if genre == 'Open World' else 'cr5'
-        return (None,
+        # 必须返回 5 个值：调用方解包是 5 元组
+        # （top10_revenue, top10_download, totals, cr, cr10）。
+        # 这里曾经只返回 4 个，导致任何一个「国家 × 品类 × 年份」组合没有样本时，
+        # 脚本会抛 ValueError: not enough values to unpack（2026-11-08 修）。
+        return (None, None,
                 {'total_download': 0, 'total_revenue': 0},
                 {f'{cr_key}_download': 0, f'{cr_key}_revenue': 0},
                 {'cr10_download': 0, 'cr10_revenue': 0})

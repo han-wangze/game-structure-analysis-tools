@@ -20,7 +20,7 @@
 | 脚本 | 功能 | 输入 | 输出 | 依赖 | 限制 |
 |---|---|---|---|---|---|
 | `genre_analysis.py` | 维度内结构：集中度、分层增长贡献、新品与存量表现、吸量效率 | 榜单 csv × N | 5 张底表 + 2 张对比图 | pandas / numpy / openpyxl / matplotlib | 各年需分别导出；维度列缺失直接退出 |
-| `market_structure_analysis.py` | 五年趋势、产品模型交叉、发行商与出海 | 榜单 csv × N | 5 张底表 | pandas / numpy / openpyxl | `RANK_AXIS` 填非法值会直接报错 |
+| `market_structure_analysis.py` | 五年趋势、产品模型交叉、发行商与出海、按预设阈值汇总的进入判断 | 榜单 csv × N | 5 张底表（含「进入判断」「市场分布」，口径见 `fields.md` §5.4） | pandas / numpy / openpyxl | `RANK_AXIS` 填非法值会直接报错；进入判断的五个阈值未经历史校准，输出只作分析参考 |
 | `cohort_tracking.py` | 队列进入率、头部留存、头部换血、存活者与退出者对比 | 榜单 csv × N | 4 张底表 | 同上 | 队列分母是「当年进榜新品」，结果偏乐观 |
 | `concentration_cr.py` | 多国多赛道 CR 与 Top10 | 合并分析数据集 xlsx | 收入 / 下载两张 CR 表 | 同上 | CR 基数按品类切换（4 或 5），跨品类不可直接比 |
 | `lifecycle_classify.py` | 跨年榜单分类：始终 / 曾经 / 从未在榜 | 合并分析数据集 xlsx | 在榜产品明细 | 同上 | 以 `Unified ID` 为主键；缺该列退回名称并告警 |
@@ -47,7 +47,7 @@
 1. 读取目录内全部 csv，合并后按「维度 × 年份」分组
 2. 每组过滤 `Category != 'Games'`，按产品主键计算指标
 3. 结果写成 xlsx（每组一行或一张表）与图表
-4. `market_structure_analysis.py` 额外做跨年对齐、产品模型交叉与发行商维度
+4. `market_structure_analysis.py` 额外做跨年对齐、产品模型交叉、发行商维度与进入判断
 
 ## 安装和运行
 

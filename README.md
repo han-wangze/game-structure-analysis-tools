@@ -20,7 +20,7 @@
 | 脚本 | 功能 | 输入 | 输出 | 依赖 | 限制 |
 |---|---|---|---|---|---|
 | `genre_analysis.py` | 维度内结构：集中度、分层增长贡献、新品与存量表现、吸量效率 | 榜单 csv × N | 5 张底表 + 2 张对比图 | pandas / numpy / openpyxl / matplotlib | 各年需分别导出；维度列缺失直接退出 |
-| `market_structure_analysis.py` | 五年趋势、产品模型交叉、发行商与出海 | 榜单 csv × N | 5 张底表 | pandas / numpy / openpyxl | `RANK_AXIS` 配错不报错，结论会错 |
+| `market_structure_analysis.py` | 五年趋势、产品模型交叉、发行商与出海 | 榜单 csv × N | 5 张底表 | pandas / numpy / openpyxl | `RANK_AXIS` 填非法值会直接报错 |
 | `cohort_tracking.py` | 队列进入率、头部留存、头部换血、存活者与退出者对比 | 榜单 csv × N | 4 张底表 | 同上 | 队列分母是「当年进榜新品」，结果偏乐观 |
 | `concentration_cr.py` | 多国多赛道 CR 与 Top10 | 合并分析数据集 xlsx | 收入 / 下载两张 CR 表 | 同上 | CR 基数按品类切换（4 或 5），跨品类不可直接比 |
 | `lifecycle_classify.py` | 跨年榜单分类：始终 / 曾经 / 从未在榜 | 合并分析数据集 xlsx | 在榜产品明细 | 同上 | 以 `Unified ID` 为主键；缺该列退回名称并告警 |
@@ -117,3 +117,7 @@ docs/figures/                 README 图片
 2021–2025 年美国市场的 Sensor Tower 双平台应用排行榜逐年导出，每年一份，文件内 `Date` 列标记该年 1 月 1 日，已按 `Category = 'Games'` 过滤；题材维度使用下载榜导出。2025 年文件覆盖该自然年全年，导出时间不早于 2026 年，具体导出日期未记录。
 
 原始数据受提供商授权限制，不随仓库发布，代码中的输入输出路径均为占位示例值。具体数值随导出深度与时间变化，复现需自备同格式数据。
+
+## 许可
+
+代码以 [MIT](LICENSE) 发布。许可证只覆盖仓库内的脚本；原始榜单数据受 Sensor Tower 条款约束，不在许可范围内，也不随仓库分发。

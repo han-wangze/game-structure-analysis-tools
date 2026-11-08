@@ -3,13 +3,13 @@
 市场结构分析 · 主脚本
 =====================
 
-在原有「集中度 / 吸量效率 / 新品 / 存量 / Top10」五张底表之外，补四块此前没做的分析：
+在原有「集中度 / 吸量效率 / 新品 / 存量 / Top10」五张底表之外，输出四块分析：
 
 1. **产品模型交叉** —— 品类（或题材）内按 Sensor Tower 官方标签 `Game Product Model`
    （超休闲 / 混合休闲 / 休闲 / 中重度）拆开，看哪条商业化路径在增长。
-   这是「细分赛道识别」的替代方案：官方标签比自建词族簇可辩护得多。
+   细分使用平台方提供的标签，不以产品名聚类代替（产品名反映命名习惯，不是玩法分类）。
 2. **五年趋势** —— 把逐年算的指标连成曲线，并给两个基准列（相对首年、相对同组中位），
-   让「在恶化 / 在好转」这句话可判定。
+   用于判断指标相对首期与同组的位置。
 3. **发行商与出海** —— 品类内发行商集中度、新进入者构成，以及
    `Most Popular Country by Downloads` 的分布（美国榜单上到底有多少产品真靠美国市场）。
 4. **进入判断** —— 每个维度按五个固定问题（规模 / 增长 / 集中度 / 新品空间 / 变现路径）
@@ -350,7 +350,7 @@ def trend_analysis(panel, dim, axis):
 
 # ======================== 3. 发行商与出海 ========================
 def publisher_analysis(panel, dim, axis):
-    """发行商集中度 + 新进入者构成 + 产品真正依赖的市场分布。"""
+    """发行商集中度 + 新进入者构成 + 产品最畅销市场的分布。"""
     rows = []
     rank_col = "revenue_abs" if axis == "revenue" else "downloads_abs"
     for (d, year), sub in panel.groupby([dim, "analysis_year"]):
@@ -380,7 +380,7 @@ def publisher_analysis(panel, dim, axis):
             r["新进入发行商占比%"] = round(safe_div(len(fresh_pubs - prev_pubs), len(fresh_pubs)) * 100, 2)
             r["老发行商带新产品数"] = len(fresh_pubs & prev_pubs)
 
-        # 真正依赖的市场：Most Popular Country by Downloads
+        # 最畅销市场：Most Popular Country by Downloads
         if "core_market" in sub.columns:
             mkt = sub["core_market"].dropna()
             mkt = mkt[mkt.astype(str).str.strip() != ""]

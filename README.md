@@ -1,193 +1,119 @@
-# 手游市场结构分析脚本
+# 手游市场结构分析工具
 
-判断一个品类或题材**值不值得进入**——不是靠总量规模，而是靠市场结构：头部够不够固化、新品挤不挤得进去、靠什么变现、进来之后能活几年。这套脚本把这四问拆成可复算的指标。
+**项目状态：可运行。** 前三个脚本读榜单导出，后两个读合并分析数据集；仓库不含数据，运行前需自备同格式文件。
 
-字段含义见 [字段说明（fields.md）](fields.md)。
+## 项目简介
 
----
+本项目用 Python 处理手游榜单导出数据，计算品类与题材的集中度、产品分层、新品表现、产品模型分布、发行商结构与跨年留存，输出 Excel 底表与图表。
 
-## Quick start
+分析对象是榜单样本内的结构，不是全市场总量。能支撑什么结论、不能支撑什么，见「数据限制与已知问题」。
 
-三个脚本按顺序跑，后一个依赖前一个的产出思路。跑之前各自改 `Config` 里的路径与维度。
+## 使用场景
+
+- 比较不同品类或题材的头部集中度与头部换手
+- 看新品进入头部后还能留在榜上多久
+- 按产品模型（超休闲 / 混合休闲 / 休闲 / 中重度）拆解一个维度的构成
+- 多国、多赛道的 CR 与在榜产品对照
+
+## 功能说明
+
+| 脚本 | 功能 | 输入 | 输出 | 依赖 | 限制 |
+|---|---|---|---|---|---|
+| `genre_analysis.py` | 维度内结构：集中度、分层增长贡献、新品与存量表现、吸量效率 | 榜单 csv × N | 5 张底表 + 2 张对比图 | pandas / numpy / openpyxl / matplotlib | 各年需分别导出；维度列缺失直接退出 |
+| `market_structure_analysis.py` | 五年趋势、产品模型交叉、发行商与出海 | 榜单 csv × N | 5 张底表 | pandas / numpy / openpyxl | `RANK_AXIS` 配错不报错，结论会错 |
+| `cohort_tracking.py` | 队列进入率、头部留存、头部换血、存活者与退出者对比 | 榜单 csv × N | 4 张底表 | 同上 | 队列分母是「当年进榜新品」，结果偏乐观 |
+| `concentration_cr.py` | 多国多赛道 CR 与 Top10 | 合并分析数据集 xlsx | 收入 / 下载两张 CR 表 | 同上 | CR 基数按品类切换（4 或 5），跨品类不可直接比 |
+| `lifecycle_classify.py` | 跨年榜单分类：始终 / 曾经 / 从未在榜 | 合并分析数据集 xlsx | 在榜产品明细 | 同上 | 以 `Unified ID` 为主键；缺该列退回名称并告警 |
+
+## 技术栈
+
+| 技术 | 用途 |
+|---|---|
+| Python 3 | 批量处理榜单 csv |
+| pandas / numpy | 数据清洗与分组计算 |
+| openpyxl | 写出 xlsx 底表 |
+| matplotlib | `genre_analysis.py` 的对比图与 README 配图 |
+
+## 输入数据与配置
+
+榜单导出为 tab 分隔 CSV，UTF-16 编码（脚本对 UTF-8 / GBK 自动回退）。把各年文件放进同一目录即可，年份从 `Date` 列取，不依赖文件名。
+
+必配项：`Config.DATA_FOLDER`（数据目录）、`Config.OUTPUT_FOLDER`（需已存在）、`Config.DIMENSION`（`sub_genre` 读 `Game Sub-genre`，`game_theme` 读 `Game Theme`）、`Config.RANK_AXIS`（收入榜填 `revenue`，下载榜填 `downloads`）。
+
+核心列：`Unified ID` / `Unified Name`、维度列、`Game Product Model`、`Category`、`Date`、`Earliest Release Date`、`Downloads (Absolute)`、`Revenue (Absolute)`、`RPD (All Time, WW)`、`DAU (Absolute)`、`ARPDAU (Last Month, US)`、发行商三列、`Most Popular Country by Downloads`。缺列会补空列并在日志告警；维度列缺失直接报错退出。
+
+## 处理流程
+
+1. 读取目录内全部 csv，合并后按「维度 × 年份」分组
+2. 每组过滤 `Category != 'Games'`，按产品主键计算指标
+3. 结果写成 xlsx（每组一行或一张表）与图表
+4. `market_structure_analysis.py` 额外做跨年对齐、产品模型交叉与发行商维度
+
+## 安装和运行
 
 ```bash
-# 1) 结构底表：先算齐集中度 / 吸量效率 / 新品 / 存量 / Top10
-python genre_analysis.py                  # 改 Config.DATA_FOLDER / OUTPUT_FOLDER / DIMENSION
+pip install -r requirements.txt
 
-# 2) 趋势与细分：把逐年指标连成曲线，按产品模型拆细分
-python market_structure_analysis.py       # 再改 RANK_AXIS，必须与该数据集的排序轴一致
-
-# 3) 产品轨迹（可选）：用产品 ID 跨年追踪，回答「进来能活多久」
-python cohort_tracking.py                # 同上
+python genre_analysis.py             # 结构底表（先改 DATA_FOLDER / OUTPUT_FOLDER / DIMENSION）
+python market_structure_analysis.py  # 趋势、产品模型、发行商（再改 RANK_AXIS）
+python cohort_tracking.py            # 跨年留存（可选）
 ```
 
-| 脚本 | 回答什么 | 输入 → 输出 |
-|---|---|---|
-| `genre_analysis.py` | 这个维度内的结构长什么样 | 榜单 csv × N → **5 张底表**（集中度 / 吸量效率 / 新品表现 / 存量产品表现 / Top10 产品详情）+ 2 张对比图 |
-| `market_structure_analysis.py` | 结构在怎么变、细分在哪 | 榜单 csv × N → **5 张底表**（产品模型分析 / 五年趋势 / 发行商与出海 / 市场分布 等） |
-| `cohort_tracking.py` | 进来之后能活几年 | 榜单 csv × N → **4 张底表**（队列进入率 / 头部留存 / 头部换血 / 存活者vs退出者） |
-| `concentration_cr.py` | 多国多赛道的 CR 与 Top10 | 分析数据集 xlsx → 格式化 CR 报告（收入 / 下载两维度） |
-| `lifecycle_classify.py` | 谁能长期在榜、谁只是短暂进榜 | 分析数据集 xlsx → 在榜产品明细 |
+`concentration_cr.py` 与 `lifecycle_classify.py` 读 `data/analysis_dataset.xlsx`，路径写在各自文件末尾。
 
-前三个吃的是**同一份榜单导出**；后两个吃的是另一份跨国家的合并分析数据集。
+## 指标说明
 
-## 输入数据格式
+字段、计算方式与输出结构见 [fields.md](fields.md)。
 
-前三个脚本读的是 Sensor Tower 导出的榜单明细 csv：
+其中两项是描述性辅助指标，不用于判断：`downloads_growth_per_launch_day`（上线期间日均下载增量）、`acquisition_dau_downloads_ratio`（DAU ÷ 累计下载量，不是用户留存率）。
 
-- **文件**：tab 分隔，UTF-16 编码（脚本对 UTF-8 / GBK 自动回退）；年份从 `Date` 列取，文件名里没有年份也能读。
-- **目录**：把所有 csv 放进同一个目录即可，脚本会合并后按「维度 × 年份」逐组分析。
-- **维度列**：跑品类用 `Game Sub-genre`，跑题材用 `Game Theme`（`Config.DIMENSION` 切换）。
-- **`Config.RANK_AXIS` 必须与该数据集的排序轴一致**——收入榜导出填 `"revenue"`，下载榜导出填 `"downloads"`。配错会让被截断的那一侧总量被当成品类级结论（见下）。
+## 数据限制与已知问题
 
-核心列（前三个脚本）：
+1. **总量与份额只能用排序轴。** 按收入导出的样本在收入维度覆盖较全，另一轴只能出样本内结论（表里标 `sample_only`）。CR 的分母是导出样本，不等于整个品类市场。
+2. **必须过滤 `Category != 'Games'`**，否则非游戏产品会进分母，而它们同样带品类与题材标签。
+3. **跨年在榜用固定 Top N**，不用「是否出现在导出文件里」——各年榜单深度差异很大。
+4. **不跨数据集拼接**，产品 ID 只在同一数据集内跨年有效。
 
-| 用途 | 列名 |
-|---|---|
-| 主键与名称 | `Unified ID`、`Unified Name` |
-| 维度与标签 | `Game Sub-genre` / `Game Theme`、`Game Product Model`、`Category` |
-| 时间 | `Date`、`Earliest Release Date` |
-| 规模与变现 | `Downloads (Absolute)`、`Revenue (Absolute)`、`RPD (All Time, WW)`、`DAU (Absolute)`、`ARPDAU (Last Month, US)` |
-| 增长 | `Downloads / Revenue (PoP Growth)`、`Downloads / Revenue (PoP Growth %)` |
-| 发行商 | `Unified Publisher Name`、`Unified Publisher ID`、`Publisher Country` |
-| 市场分布 | `Most Popular Country by Downloads` |
+完整口径与实测影响见 [docs/data_limits.md](docs/data_limits.md)。
 
-缺列会补空列并在日志里告警，但**维度列缺失会直接报错退出**——它是分析的主键。
+已知问题：
 
-`concentration_cr.py` / `lifecycle_classify.py` 读的是另一份合并分析数据集（xlsx），需要的列见各自章节。
+- 五个判定阈值（规模、增长、CR5 两档、换血率、路径集中度）是经验设定，未经历史数据校准，也未做跨市场验证
+- 只在 Windows 单机、单一数据提供商的导出上跑过；换数据源需重新核对列名与编码
+- 仓库不含原始数据，他人无法复现文中数值
 
----
+## 实测结果
 
-## 数据边界与口径（先读这一节）
-
-榜单导出的样本框决定了哪些结论能成立。分析前需要注意以下数据限制：
-
-1. **总量与份额只能用排序轴。** 榜单是「按某一个指标排序后导出的」，所以：按收入导出的样本里，收入维度的覆盖程度高于下载维度，但覆盖是否接近全量取决于榜单深度——**排序轴总量也应结合导出范围解释**，CR 的分母是导出样本，不默认等于整个品类市场；按下载导出的样本反之。另一轴只能出**样本内结构**结论（表里标 `sample_only`），不能当品类级。
-   - 实测影响：Card Battler 2025 年的收入 CR5，在不过滤时是 83.0%，过滤后是 87.0%——差的 4 个百分点全在非游戏产品上。
-2. **必须过滤 `Category != 'Games'`。** 实测下载榜样本里有 3.6% 的非游戏产品，而它们同样带着品类 / 题材标签，不滤会污染分母。
-3. **跨年在榜一律用固定 Top N 排名口径**，不用「是否出现在导出文件里」——各年榜单深度逐年变化（实测 Block 的导出从 2021 年 1,641 行降到 2025 年 629 行），用文件出现与否会把「榜单变浅」误判成「产品掉榜」。
-4. **DAU 只用于头部子样本**（覆盖率按下载五分位：最低档 8.9%、最高档 70%），不做主指标；ARPDAU 覆盖率 3%–15%，同理。
-5. **不跨数据集拼接。** 每个导出各自跑，结论不跨集合并；产品 ID 只在同一个数据集内跨年有效。
-6. **不把不同口径的维度排成一张座次。** 收入榜导出的品类与下载榜导出的品类分开呈现，各自内部可比。
-7. **`RANK_AXIS` 配错会静默产生错误结论。** 它决定哪个轴可以出总量结论，配错不会报错，只会让被截断的那一侧看起来像真实总量。
-
----
-
-## 1. genre_analysis.py — 品类 / 题材结构分析
-
-**为什么需要**：集中度、分层增长贡献、新品渗透与变现、存量生命周期这些结构指标没法用透视表一次算出来，而它们须按「维度 × 年份」口径一致地批量计算，故写成脚本。
-
-**做什么**（对每个维度 × 年份各算一遍）
-
-- **集中度**：CR3 / CR5 / CR10 与垄断分层；头部 / 中腰部 / 尾部（40% / 70% 阈值）分层增长贡献；Top10 下载与收入双维度贡献；头部结构稳定性（前 3 名增长方差、第一二名差距、前 3 名成熟度）。
-- **吸量效率**：分层吸量效率（下载 ÷ 产品数），及增长、DAU/下载比、变现三个效率维度（前两个为辅助描述指标，不是获客效率或用户留存率）。
-- **新品表现**：新品渗透率、增长贡献、RPD 溢价。
-- **存量表现**：成熟（1–3 年）/ 衰退（3 年以上）分层，产品年龄与下载增长的 Pearson 相关。
-
-**运行**：改 `Config.DATA_FOLDER` / `OUTPUT_FOLDER` / `DIMENSION` 后 `python genre_analysis.py`。
-
-**输出**：`game_category_analysis_report_5years.xlsx`（5 张底表）+ CR5、吸量效率两张对比图。
-
-**切换维度**：`Config.DIMENSION = "sub_genre"` 跑品类（读 `Game Sub-genre`），`"game_theme"` 跑题材（读 `Game Theme`）。其余口径与输出结构完全一致，输出里的维度列名随配置显示。
-
-## 2. market_structure_analysis.py — 五年趋势、产品模型与发行商结构
-
-**为什么需要**：`genre_analysis.py` 每年独立算一套指标、每行 = 维度 × 年份，**五年趋势没有被读出来**；细分只靠品类标签也太粗。
-
-**做什么**（核心三张）
-
-- **产品模型交叉**（细分识别）：用 Sensor Tower 官方标签 `Game Product Model`（超休闲 / 混合休闲 / 休闲 / 中重度）把维度拆开，看哪条商业化路径在长。
-  - 为什么不用产品名做聚类：产品名测的是命名习惯，不是玩法——同一玩法会因命名习惯被拆成几个簇，不同玩法会因共用词被并到一起；再加上没有买量投入、曝光量、自然量/买量拆分这些数据，名字与表现之间的差异无法与产品质量、发行商预算区分。这类簇能回答「某个命名词占多少」，回答不了「这个品类分成哪几条赛道」。
-  - 官方标签是平台方给的分类，可辩护，且直接对应商业化路径。实测区分度按维度而异：有的维度超休闲与休闲加起来九成、几乎没有中重度（走量），有的九成集中在中重度（路径单一）。
-- **五年趋势**：维度 × 年份 × 指标（CR3/5/10、分层增长贡献、新品渗透、RPD、分层吸量效率），外加**两个基准列**——相对首年、相对同组中位，用来判断各指标相对基期与同组处于什么水平。
-- **发行商与出海**：发行商集中度（Publisher CR3/CR5）、新进入者构成（新玩家 vs 老厂商跨界）、以及 `Most Popular Country by Downloads` 分布。
-  - 最后一项回答一个很实的问题：榜单上跑得好的产品，有多少是**真靠本国市场**跑起来的（实测该字段与发行商国籍只有约 14% 一致，说明它记的是产品实际最畅销的市场）。
-**运行**：改 `Config.DATA_FOLDER` / `OUTPUT_FOLDER` / `DIMENSION` / `RANK_AXIS` 后 `python market_structure_analysis.py`。
-
-**输出**：`市场结构分析_<维度>_<排序轴>_<时间戳>.xlsx`。
-
-## 3. cohort_tracking.py — 产品轨迹：进入头部、留存与换血
-
-**为什么需要**：榜单数据支持**用产品 ID 跨年追踪同一个产品怎么起怎么落**，这是回答「进来之后能活几年」的基础。
-
-**做什么**（四张底表）
-
-- **队列进入率**：按首发年份分队列，看第 k 年有多少成员进入头部 Top N。
-  - ⚠ 指标命名：它测的是「新品进入头部的比例」，**不是存活率**——队列成员从未被要求先进过 Top N。
-  - 两个必须知道的偏误：分母是**当年进榜的新品**（不是当年全部新品）⇒ 结果偏乐观；**上线当年（k=0）在收入轴下结构性吃亏**——新游当年几乎没有收入，进不了当年收入 Top N，到第二年才有完整年度数据，所以 k=0 与 k≥1 不可直接比较。
-- **头部留存**：**在首个完整经营年进入 Top N 的新品，次年还能不能保住位置**。避开「上线当年进不了榜」的干扰。
-- **头部换血**：每年 Top20 里有多少是上一年不在的，换血产品里有多少是当年新品。首年无上年数据，留空而不是记成 100%。
-- **存活者 vs 退出者**：把队列按次年是否仍在榜分成两组，对比它们在**进入年**的下载规模、RPD、产品模型档、发行商规模。
-
-**运行**：改四个 `Config` 后 `python cohort_tracking.py`。
-
-**输出**：`产品轨迹分析_<维度>_<排序轴>_<时间戳>.xlsx`。
-
----
-
-## 4. concentration_cr.py — CR 集中度与 Top10 底表
-
-服务多国 × 多赛道 × 多年份的下载 / 收入集中度对比。手工透视容易口径不一，脚本统一处理：下载 CR 按下载排名、收入 CR 按收入排名分别取值；CR 基数按品类切换（产品少的品类取 4，其余取 5）；当年首发的产品标黄；收入与下载两个维度各出一张表。
-
-**运行**：把合并好的分析数据集 xlsx 放到 `data/analysis_dataset.xlsx`，需含 `Unified Name` / `Game Sub-genre` / 国家 / 年份 / `Downloads (Absolute)` / `Revenue (Absolute)` / `Earliest Release Date` 列。
-
-**输出**：`data/RPG手游市场分析报告.xlsx`。
-
-## 5. lifecycle_classify.py — 跨年榜单分类
-
-判断哪些产品能长期留在品类 Top20、哪些只是短暂进榜。在榜标准是当年在本品类内下载或收入任一进入 Top20，分「始终在榜（上市以来每个有数据年份都在榜）/ 曾经在榜 / 从未在榜」三类，保留始终与曾经在榜产品并附逐年排名。
-
-**运行**：同上格式的分析数据集。
-
-**输出**：`data/在榜产品分析_按品类排名.xlsx`。
-
----
-
-## 6. 实测结果
-
-### 数据与范围
-
-本节只展开一份导出：收入榜导出的三个品类，只看收入。
-
-| 排序轴 | 维度 | 覆盖 | 逐年产品数 |
-|---|---|---|---|
-| 收入 | Card Battler / Match Merge 2 / Real-Time Strategy | 美国，2021–2025 | 1,512–2,983 |
-
-数据是 Sensor Tower 双平台应用排行榜的逐年导出（美国），已按 `Category = 'Games'` 过滤。下载榜导出（Block / Solitaire / 4X Strategy）与 10 个题材维度跑的是同一套脚本，但它们按下载排序，口径与收入轴不同，不与收入轴并列，本节不展开。
+本节只展开收入榜导出的三个品类（Card Battler / Match Merge 2 / Real-Time Strategy），美国 2021–2025，逐年 1,512–2,983 个产品，已过滤非游戏。下载榜与题材跑同一套脚本，口径不同，不并列。
 
 ![收入榜导出三个品类的头部集中度走势](docs/figures/revenue_cr5_trend.png)
 
-图由仓库里的 `make_readme_figures.py` 从产出表直接生成，不另算指标。
+图由 `make_readme_figures.py` 从产出表生成，不重算指标。
 
-### ① 头部集中度：三个品类都在高位，走势分三种
+**集中度**：2025 年 CR5 为 Real-Time Strategy 88.8%、Card Battler 87.0%、Match Merge 2 79.5%；五年最低是 Card Battler 2022 年的 62.7%。走势分三种——Card Battler 2022 回落后逐年升到 87.0%，Real-Time Strategy 2023 触底 71.8% 后回升，Match Merge 2 五年在 79.5%–83.0% 走平。
 
-2025 年 CR5：Real-Time Strategy 88.8%、Card Battler 87.0%、Match Merge 2 79.5%；五年里最低的一档是 Card Battler 2022 年的 62.7%。
+**换血率**：Top20 换血率 Card Battler 15%–20%、Real-Time Strategy 25%–35%、Match Merge 2 25%–45%。Match Merge 2 的 CR5 与另两个相差不到十个点，头部换得更勤。
 
-走势分三种：Card Battler 从 2021 年 82.1% 回落到 2022 年 62.7%，之后逐年升到 87.0%；Real-Time Strategy 在 2023 年触底 71.8% 后回升；Match Merge 2 五年都在 79.5%–83.0%，基本走平。
+**产品模型**：2025 年按产品数，Card Battler 81.1%、Real-Time Strategy 67.4% 以中重度为主；Match Merge 2 是超休闲 52.5% 加休闲 39.5%，中重度只占 2.1%。标签反映的是产品模型结构，内购与广告的实际构成需要变现数据。
 
-### ② 集中度接近，头部结构可以很不一样
+**头部留存**：首个完整经营年进入 Top100 的新品，次年保住位置的比例：Card Battler 73.3% → 61.5% → 46.7%，Real-Time Strategy 73.9% → 60.0% → 68.4%，Match Merge 2 48.8% → 54.1% → 45.5%（2022–2024 观察年）。每条队列每年只有 13–15 个产品，少保住 4 个就掉 27 个百分点，只能当方向看。
 
-Top20 换血率（当年在榜且上一年不在的比例）：Card Battler 15%–20%，Real-Time Strategy 25%–35%，Match Merge 2 25%–45%。Match Merge 2 的 CR5 与另两个相差不到十个点，头部却换得勤得多。
-
-### ③ 变现路径：产品模型标签直接给分布
-
-2025 年按产品数：Card Battler 81.1%、Real-Time Strategy 67.4% 以中重度为主；Match Merge 2 是超休闲 52.5% 加休闲 39.5%，中重度只有 2.1%。需要说明的是，产品模型是平台给的产品分类，标签分布反映的是**产品模型结构**；实际的内购 / 广告构成占比，需要变现数据才能下结论。
-
-### ④ 头部留存：样本太小，只看方向
-
-在首个完整经营年进入 Top100 的新品，次年还能保住位置的比例：Card Battler 73.3% → 61.5% → 46.7%（2022–2024 观察年），Real-Time Strategy 73.9% → 60.0% → 68.4%，Match Merge 2 48.8% → 54.1% → 45.5%。
-
-只有 Card Battler 是单调下滑，另两个是波动。每条队列每年只有 13–15 个产品——一条 15 个样本的比率线，少保住 4 个产品就掉 27 个百分点，只能当方向。
-
-## 依赖
+## 项目目录
 
 ```
-pandas
-numpy
-openpyxl
-matplotlib      # genre_analysis.py 的对比图、make_readme_figures.py
+genre_analysis.py             结构底表
+market_structure_analysis.py  五年趋势、产品模型、发行商
+cohort_tracking.py            跨年留存
+concentration_cr.py           多国 CR
+lifecycle_classify.py         在榜分类
+fields.md                     字段与指标口径
+make_readme_figures.py        README 配图
+docs/data_limits.md           完整数据口径与实测影响
+docs/figures/                 README 图片
 ```
 
-## 关于示例值
+## 数据来源
 
-仓库代码中的输入输出路径均为占位示例值，替换成实际路径即可运行，业务逻辑与统计口径完整保留。代码不含公司内部数据、市场明细数据或未公开的结论；README 里的指标均为品类级聚合（CR5、换血率、产品模型占比），不含单品级份额。
+2021–2025 年美国市场的 Sensor Tower 双平台应用排行榜逐年导出，每年一份，文件内 `Date` 列标记该年 1 月 1 日，已按 `Category = 'Games'` 过滤；题材维度使用下载榜导出。2025 年文件覆盖该自然年全年，导出时间不早于 2026 年，具体导出日期未记录。
+
+原始数据受提供商授权限制，不随仓库发布，代码中的输入输出路径均为占位示例值。具体数值随导出深度与时间变化，复现需自备同格式数据。

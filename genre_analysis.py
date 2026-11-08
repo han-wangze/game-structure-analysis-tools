@@ -287,20 +287,13 @@ def load_all_data(data_folder):
         print(f"警告：在 {data_folder} 中未找到CSV文件")
         return pd.DataFrame()
 
-    # 筛选包含分析年份的文件
-    year_strs = [str(year) for year in Config.ANALYSIS_YEARS]
-    filtered_files = []
+    # 不再按文件名预筛：年份是从 Date 列读出来的（见 preprocess_data 中的 analysis_year），
+    # 文件名含年份只是历史习惯。把文件名当加载门禁，会让「文件名不含年份
+    # 但 Date 列有效」的文件被整份丢掉（2026-11-08 修）。
+    # 读不动的文件由下面的 try/except 逐个跳过并打日志。
+    print(f"找到 {len(csv_files)} 个CSV文件，逐个读取后按 Date 列筛选年份")
+
     for filename in csv_files:
-        if any(year in filename for year in year_strs):
-            filtered_files.append(filename)
-
-    if not filtered_files:
-        print(f"警告：未找到包含{Config.ANALYSIS_YEARS}年份的CSV文件")
-        return pd.DataFrame()
-
-    print(f"找到 {len(filtered_files)} 个包含目标年份的CSV文件")
-
-    for filename in filtered_files:
         file_path = os.path.join(data_folder, filename)
         try:
             df = preprocess_data(file_path)

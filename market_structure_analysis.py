@@ -542,6 +542,16 @@ def entry_judgement(trend, model_df):
 
 # ======================== 主流程 ========================
 def main():
+    # 配置守卫：RANK_AXIS 决定哪个轴可以下总量结论。
+    # 下游用的是 `"revenue_abs" if axis == "revenue" else "downloads_abs"`，
+    # 也就是说填任何非 revenue 的值都会被**静默**当成下载轴——不会报错，
+    # 只会安静地得出错误口径的结论（2026-11-08 修）。
+    if Config.RANK_AXIS not in ("revenue", "downloads"):
+        raise ValueError(
+            f"RANK_AXIS 只能是 'revenue' 或 'downloads'，当前为 {Config.RANK_AXIS!r}。"
+            "它会决定哪个轴可以下总量结论，填错会静默按下载轴处理。"
+        )
+
     print("=" * 70)
     print("市场结构分析")
     print(f"数据目录：{Config.DATA_FOLDER}")

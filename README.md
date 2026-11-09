@@ -82,21 +82,6 @@ python cohort_tracking.py            # 跨年留存（可选）
 - 只在 Windows 单机、单一数据提供商的导出上跑过；换数据源需重新核对列名与编码
 - 仓库不含原始数据，他人无法复现文中数值
 
-## 实测结果
-
-本节只展开收入榜导出的三个品类（Card Battler / Match Merge 2 / Real-Time Strategy），美国 2021–2025，逐年 1,512–2,983 个产品，已过滤非游戏。下载榜与题材跑同一套脚本，口径不同，不并列。
-
-![收入榜导出三个品类的头部集中度走势](docs/figures/revenue_cr5_trend.png)
-
-图由 `make_readme_figures.py` 从产出表生成，不重算指标。
-
-**集中度**：2025 年 CR5 为 Real-Time Strategy 88.8%、Card Battler 87.0%、Match Merge 2 79.5%；五年最低是 Card Battler 2022 年的 62.7%。走势分三种——Card Battler 2022 回落后逐年升到 87.0%，Real-Time Strategy 2023 触底 71.8% 后回升，Match Merge 2 五年在 79.5%–83.0% 走平。
-
-**换血率**：Top20 换血率 Card Battler 15%–20%、Real-Time Strategy 25%–35%、Match Merge 2 25%–45%。Match Merge 2 的 CR5 与另两个相差不到十个点，头部换得更勤。
-
-**产品模型**：2025 年按产品数，Card Battler 81.1%、Real-Time Strategy 67.4% 以中重度为主；Match Merge 2 是超休闲 52.5% 加休闲 39.5%，中重度只占 2.1%。标签反映的是产品模型结构，内购与广告的实际构成需要变现数据。
-
-**头部留存**：首个完整经营年进入 Top100 的新品，次年保住位置的比例：Card Battler 73.3% → 61.5% → 46.7%，Real-Time Strategy 73.9% → 60.0% → 68.4%，Match Merge 2 48.8% → 54.1% → 45.5%（2022–2024 观察年）。每条队列每年只有 13–15 个产品，少保住 4 个就掉 27 个百分点，只能当方向看。
 
 ## 项目目录
 

@@ -15,6 +15,12 @@
 - 按产品模型（超休闲 / 混合休闲 / 休闲 / 中重度）拆解一个维度的构成
 - 多国、多赛道的 CR 与在榜产品对照
 
+## 指标说明
+
+字段、计算方式与输出结构见 [fields.md](fields.md)。
+
+其中两项是描述性辅助指标，不用于判断：`downloads_growth_per_launch_day`（上线期间日均下载增量）、`acquisition_dau_downloads_ratio`（DAU ÷ 累计下载量，不是用户留存率）。
+
 ## 功能说明
 
 | 脚本 | 功能 | 输入 | 输出 | 依赖 | 限制 |
@@ -61,11 +67,6 @@ python cohort_tracking.py            # 跨年留存（可选）
 
 `concentration_cr.py` 与 `lifecycle_classify.py` 读 `data/analysis_dataset.xlsx`，路径写在各自文件末尾。
 
-## 指标说明
-
-字段、计算方式与输出结构见 [fields.md](fields.md)。
-
-其中两项是描述性辅助指标，不用于判断：`downloads_growth_per_launch_day`（上线期间日均下载增量）、`acquisition_dau_downloads_ratio`（DAU ÷ 累计下载量，不是用户留存率）。
 
 ## 数据限制与已知问题
 
